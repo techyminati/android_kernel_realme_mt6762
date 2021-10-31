@@ -348,6 +348,14 @@ void msdc_sd_power_off(void)
 EXPORT_SYMBOL(msdc_sd_power_off);
 #endif /*if !defined(FPGA_PLATFORM)*/
 
+#ifdef ODM_HQ_EDIT
+/*Wenchao.Du@ODM_HQ.BSP.Kernel.Driver 2019.01.08 add sdcard poweroff quick*/
+void msdc_sd_power_off_quick(void){
+    pr_err("sdcard removed and power off VMCH first!\n");
+    pmic_config_interface_nolock(0x1AC4,0x0,0x1,0); //add here for disable VMCH
+}
+#endif /*ODM_HQ_EDIT*/
+
 void msdc_pmic_force_vcore_pwm(bool enable)
 {
 #if !defined(FPGA_PLATFORM) && !defined(CONFIG_MTK_MSDC_BRING_UP_BYPASS)

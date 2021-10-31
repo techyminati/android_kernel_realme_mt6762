@@ -236,7 +236,6 @@ static void mmc_post_req(struct mmc_host *host, struct mmc_request *mrq,
 	int err);
 
 /* add for emmc reset when error happen */
-int current_mmc_part_type;
 int emmc_resetting_when_cmdq;
 static int mmc_reset_for_cmdq(struct mmc_host *host)
 {
@@ -249,7 +248,8 @@ static int mmc_reset_for_cmdq(struct mmc_host *host)
 		u8 part_config = host->card->ext_csd.part_config;
 
 		part_config &= ~EXT_CSD_PART_CONFIG_ACC_MASK;
-		part_config |= current_mmc_part_type;
+		/* only enable cq at user */
+		part_config |= 0;
 
 		ret = mmc_switch(host->card, EXT_CSD_CMD_SET_NORMAL,
 				EXT_CSD_PART_CONFIG, part_config,
@@ -468,7 +468,6 @@ int mmc_run_queue_thread(void *data)
 	struct mmc_request *done_mrq = NULL;
 	unsigned int task_id, areq_cnt_chk, tmo;
 	bool is_done = false;
-	bool io_boost_done = false;
 
 	int err;
 	u64 chk_time = 0;
@@ -480,10 +479,10 @@ int mmc_run_queue_thread(void *data)
 
 	pr_notice("[CQ] start cmdq thread\n");
 	mt_bio_queue_alloc(current, NULL);
-	while (1) {
 
-		mtk_io_boost_test_and_add_tid(current->pid,
-			&io_boost_done);
+	mtk_iobst_register_tid(current->pid);
+
+	while (1) {
 
 		set_current_state(TASK_RUNNING);
 		mt_biolog_cmdq_check();
@@ -514,7 +513,7 @@ int mmc_run_queue_thread(void *data)
 						pr_notice("[CQ] tuning pass\n");
 				}
 
-				host->cur_rw_task = 99;
+				host->cur_rw_task = CQ_TASK_IDLE;
 				task_id = (done_mrq->cmd->arg >> 16) & 0x1f;
 				host->ops->request(host,
 					host->areq_que[task_id]->mrq_que);
@@ -529,7 +528,7 @@ int mmc_run_queue_thread(void *data)
 				task_id = (done_mrq->cmd->arg >> 16) & 0x1f;
 				mt_biolog_cmdq_dma_end(task_id);
 				mmc_check_write(host, done_mrq);
-				host->cur_rw_task = 99;
+				host->cur_rw_task = CQ_TASK_IDLE;
 				is_done = true;
 
 				if (atomic_read(&host->cq_tuning_now) == 1) {
@@ -817,11 +816,9 @@ request_end:
 
 static void mmc_wait_for_cmdq_done(struct mmc_host *host)
 {
-	while ((atomic_read(&host->areq_cnt) != 0) ||
-		((host->state) != 0)) {
+	while (atomic_read(&host->areq_cnt) != 0) {
 		wait_event_interruptible(host->cmp_que,
-			((atomic_read(&host->areq_cnt) == 0) &&
-			((host->state) == 0)));
+			(atomic_read(&host->areq_cnt) == 0));
 	}
 }
 
@@ -829,36 +826,76 @@ void mmc_wait_cmdq_empty(struct mmc_host *host)
 {
 	mmc_wait_for_cmdq_done(host);
 }
+#endif
 
+#if defined(CONFIG_MTK_EMMC_CQ_SUPPORT) || defined(CONFIG_MTK_EMMC_HW_CQ)
 int mmc_blk_cmdq_switch(struct mmc_card *card, int enable)
 {
 	int ret;
+	bool cmdq_mode = !!mmc_card_cmdq(card);
+	struct mmc_host *host = card->host;
 
-	if (!card->ext_csd.cmdq_support)
+	if (!card->ext_csd.cmdq_support ||
+		(cmdq_mode == !!enable))
 		return 0;
 
-	if (!enable)
+#ifdef CONFIG_MTK_EMMC_HW_CQ
+	if (!enable &&
+		(card->host->caps2 & MMC_CAP2_CQE)) {
+		/* host support cqe */
+		ret = mmc_cmdq_halt_on_empty_queue(host);
+		if (ret) {
+			pr_notice("%s: halt: failed: %d\n",
+				mmc_hostname(host), ret);
+			goto out;
+		}
+		/* disable for xf data */
+		host->cmdq_ops->disable(host, true);
+	}
+#endif
+#ifdef CONFIG_MTK_EMMC_CQ_SUPPORT
+	if (!enable &&
+		!(card->host->caps2 & MMC_CAP2_CQE)) {
 		mmc_wait_cmdq_empty(card->host);
+	}
+#endif
 
 	ret = mmc_switch(card, EXT_CSD_CMD_SET_NORMAL,
-		EXT_CSD_CMDQ_MODE_EN, !!enable,
+		EXT_CSD_CMDQ_MODE_EN, enable,
 		card->ext_csd.generic_cmd6_time);
 
 	if (ret) {
-		pr_err("%s: cmdq %s error %d\n",
-				mmc_hostname(card->host),
+		pr_notice("%s: cmdq %s error %d\n",
+				mmc_hostname(host),
 				enable ? "on" : "off",
 				ret);
-		return ret;
+		goto out;
 	}
 
-	card->ext_csd.cmdq_mode_en = !!enable;
+	card->ext_csd.cmdq_en = enable;
 
-	pr_notice("%s: set cmdq %s\n",
-		mmc_hostname(card->host),
-		enable ? "on":"off");
+	pr_notice("%s: device cq %s\n",
+		mmc_hostname(host),
+		card->ext_csd.cmdq_en ? "on":"off");
 
-	return 0;
+	if (enable) {
+		mmc_card_set_cmdq(card);
+#ifdef CONFIG_MTK_EMMC_HW_CQ
+		if (card->host->caps2 & MMC_CAP2_CQE) {
+			/* enable for cqhci */
+			host->cmdq_ops->enable(host);
+			/* un-halt when enable */
+			if (mmc_host_halt(host) &&
+				mmc_cmdq_halt(host, false))
+				pr_notice("%s: %s: cmdq unhalt failed\n",
+					mmc_hostname(host), __func__);
+		}
+#endif
+	} else
+		mmc_card_clr_cmdq(card);
+
+out:
+	return ret;
 }
 EXPORT_SYMBOL(mmc_blk_cmdq_switch);
 #endif
@@ -1136,7 +1173,7 @@ static int mmc_start_request(struct mmc_host *host, struct mmc_request *mrq)
 	}
 
 #ifdef CONFIG_MTK_EMMC_CQ_SUPPORT
-	if (host->card && host->card->ext_csd.cmdq_mode_en &&
+	if (mmc_card_cmdq(host->card) &&
 			mrq->done == mmc_wait_cmdq_done) {
 		mmc_enqueue_queue(host, mrq);
 		wake_up_process(host->cmdq_thread);
@@ -1154,7 +1191,7 @@ static int mmc_start_request(struct mmc_host *host, struct mmc_request *mrq)
 			/* cannot wait cmdq empty for init requests
 			 * when emmc resetting when cmdq
 			 */
-			if (strcmp(current->comm, "exe_cq")
+			if (strncmp(current->comm, "exe_cq", 6)
 				|| !emmc_resetting_when_cmdq)
 			mmc_wait_cmdq_empty(host);
 #endif
@@ -1167,6 +1204,38 @@ static int mmc_start_request(struct mmc_host *host, struct mmc_request *mrq)
 
 	return 0;
 }
+
+#ifdef CONFIG_MTK_EMMC_HW_CQ
+static void mmc_start_cmdq_request(struct mmc_host *host,
+				   struct mmc_request *mrq)
+{
+	if (mrq->data) {
+		pr_debug("%s: blksz %d blocks %d flags %08x tsac %lu ms nsac %d\n",
+			mmc_hostname(host), mrq->data->blksz,
+			mrq->data->blocks, mrq->data->flags,
+			mrq->data->timeout_ns / NSEC_PER_MSEC,
+			mrq->data->timeout_clks);
+
+		WARN_ON(mrq->data->blksz > host->max_blk_size); /*bug*/
+		WARN_ON(mrq->data->blocks > host->max_blk_count); /*bug*/
+		WARN_ON(mrq->data->blocks * mrq->data->blksz >
+			host->max_req_size); /*bug*/
+		mrq->data->error = 0;
+		mrq->data->mrq = mrq;
+	}
+
+	if (mrq->cmd) {
+		mrq->cmd->error = 0;
+		mrq->cmd->mrq = mrq;
+	}
+
+	if (likely(host->cmdq_ops->request))
+		host->cmdq_ops->request(host, mrq);
+	else
+		pr_notice("%s: %s: issue request failed\n", mmc_hostname(host),
+				__func__);
+}
+#endif
 
 /**
  *	mmc_start_bkops - start BKOPS for supported cards
@@ -1286,7 +1355,7 @@ static int __mmc_start_data_req(struct mmc_host *host, struct mmc_request *mrq)
 	mmc_wait_ongoing_tfr_cmd(host);
 
 #ifdef CONFIG_MTK_EMMC_CQ_SUPPORT
-	if (host->card && host->card->ext_csd.cmdq_mode_en)
+	if (mmc_card_cmdq(host->card))
 		mrq->done = mmc_wait_cmdq_done;
 	else
 #endif
@@ -1481,6 +1550,143 @@ static void mmc_post_req(struct mmc_host *host, struct mmc_request *mrq,
 	if (host->ops->post_req)
 		host->ops->post_req(host, mrq, err);
 }
+
+#ifdef CONFIG_MTK_EMMC_HW_CQ
+/**
+ *	mmc_cmdq_discard_card_queue - discard the task[s] in the device
+ *	@host: host instance
+ *	@tasks: mask of tasks to be knocked off
+ *		0: remove all queued tasks
+ */
+int mmc_cmdq_discard_queue(struct mmc_host *host, u32 tasks)
+{
+	pr_notice("%s: discard tasks = %d (0: all)\n",
+			mmc_hostname(host),
+			tasks);
+	return mmc_discard_queue(host, tasks);
+}
+EXPORT_SYMBOL(mmc_cmdq_discard_queue);
+
+/**
+ *	mmc_cmdq_post_req - post process of a completed request
+ *	@host: host instance
+ *	@tag: the request tag.
+ *	@err: non-zero is error, success otherwise
+ */
+void mmc_cmdq_post_req(struct mmc_host *host, int tag, int err)
+{
+	if (likely(host->cmdq_ops->post_req))
+		host->cmdq_ops->post_req(host, tag, err);
+}
+EXPORT_SYMBOL(mmc_cmdq_post_req);
+
+/**
+ *	mmc_cmdq_halt - halt/un-halt the command queue engine
+ *	@host: host instance
+ *	@halt: true - halt, un-halt otherwise
+ *
+ *	Host halts the command queue engine. It should complete
+ *	the ongoing transfer and release the bus.
+ *	All legacy commands can be sent upon successful
+ *	completion of this function.
+ *	Returns 0 on success, negative otherwise
+ */
+int mmc_cmdq_halt(struct mmc_host *host, bool halt)
+{
+	int err = 0;
+
+	if (mmc_host_cq_disable(host)) {
+		pr_notice("%s: %s: CQE is already disabled\n",
+				mmc_hostname(host), __func__);
+		return 0;
+	}
+
+	if ((halt && mmc_host_halt(host)) ||
+	    (!halt && !mmc_host_halt(host))) {
+		pr_notice("%s: %s: CQE is already %s\n", mmc_hostname(host),
+				__func__, halt ? "halted" : "un-halted");
+		return 0;
+	}
+
+	pr_debug("%s: %s: CQE need %s\n", mmc_hostname(host),
+				__func__, halt ? "halted" : "un-halted");
+	if (host->cmdq_ops->halt) {
+		err = host->cmdq_ops->halt(host, halt);
+		if (!err && halt)
+			mmc_host_set_halt(host);
+		else if (!err && !halt) {
+			mmc_host_clr_halt(host);
+			wake_up(&host->cmdq_ctx.wait);
+		}
+	} else
+		err = -EINVAL;
+
+	pr_debug("%s: %s: CQE done %s\n", mmc_hostname(host),
+		__func__,
+		mmc_host_halt(host) ? "halted" : "un-halted");
+
+	return err;
+}
+EXPORT_SYMBOL(mmc_cmdq_halt);
+
+int mmc_cmdq_start_req(struct mmc_host *host, struct mmc_cmdq_req *cmdq_req)
+{
+	struct mmc_request *mrq = &cmdq_req->mrq;
+
+	mrq->host = host;
+	if (mmc_card_removed(host->card)) {
+		mrq->cmd->error = -ENOMEDIUM;
+		return -ENOMEDIUM;
+	}
+	mmc_start_cmdq_request(host, mrq);
+	return 0;
+}
+EXPORT_SYMBOL(mmc_cmdq_start_req);
+
+static void mmc_cmdq_dcmd_req_done(struct mmc_request *mrq)
+{
+	complete(&mrq->completion);
+}
+
+int mmc_cmdq_wait_for_dcmd(struct mmc_host *host,
+			struct mmc_cmdq_req *cmdq_req)
+{
+	struct mmc_request *mrq = &cmdq_req->mrq;
+	struct mmc_command *cmd = mrq->cmd;
+	int err = 0;
+
+	init_completion(&mrq->completion);
+	mrq->done = mmc_cmdq_dcmd_req_done;
+	err = mmc_cmdq_start_req(host, cmdq_req);
+	if (err)
+		return err;
+
+	wait_for_completion_io(&mrq->completion);
+	if (cmd->error) {
+		pr_notice("%s: dcmd %d failed with err %d\n",
+				mmc_hostname(host), cmd->opcode,
+				cmd->error);
+		err = cmd->error;
+		if (host->cmdq_ops->dumpstate)
+			host->cmdq_ops->dumpstate(host, false);
+	}
+
+	pr_debug("%s: dcmd %d done with err %d\n",
+			mmc_hostname(host), cmd->opcode,
+			cmd->error);
+
+	return err;
+}
+EXPORT_SYMBOL(mmc_cmdq_wait_for_dcmd);
+
+int mmc_cmdq_prepare_flush(struct mmc_command *cmd)
+{
+	return   __mmc_switch_cmdq_mode(cmd, EXT_CSD_CMD_SET_NORMAL,
+				     EXT_CSD_FLUSH_CACHE, 1,
+				     0, true, true);
+}
+EXPORT_SYMBOL(mmc_cmdq_prepare_flush);
+#endif
 
 /**
  *	mmc_start_req - start a non-blocking request
@@ -3024,6 +3230,129 @@ static unsigned int mmc_erase_timeout(struct mmc_card *card,
 		return mmc_mmc_erase_timeout(card, arg, qty);
 }
 
+#ifdef CONFIG_MTK_EMMC_HW_CQ
+static u32 mmc_get_erase_qty(struct mmc_card *card, u32 from, u32 to)
+{
+	u32 qty = 0;
+
+	/*
+	 * qty is used to calculate the erase timeout which depends on how many
+	 * erase groups (or allocation units in SD terminology) are affected.
+	 * We count erasing part of an erase group as one erase group.
+	 * For SD, the allocation units are always a power of 2.  For MMC, the
+	 * erase group size is almost certainly also power of 2, but it does not
+	 * seem to insist on that in the JEDEC standard, so we fall back to
+	 * division in that case.  SD may not specify an allocation unit size,
+	 * in which case the timeout is based on the number of write blocks.
+	 *
+	 * Note that the timeout for secure trim 2 will only be correct if the
+	 * number of erase groups specified is the same as the total of all
+	 * preceding secure trim 1 commands.  Since the power may have been
+	 * lost since the secure trim 1 commands occurred, it is generally
+	 * impossible to calculate the secure trim 2 timeout correctly.
+	 */
+	if (card->erase_shift)
+		qty += ((to >> card->erase_shift) -
+			(from >> card->erase_shift)) + 1;
+	else if (mmc_card_sd(card))
+		qty += to - from + 1;
+	else
+		qty += ((to / card->erase_size) -
+			(from / card->erase_size)) + 1;
+	return qty;
+}
+
+static int mmc_cmdq_send_erase_cmd(struct mmc_cmdq_req *cmdq_req,
+		struct mmc_card *card, u32 opcode, u32 arg, u32 qty)
+{
+	struct mmc_command *cmd = cmdq_req->mrq.cmd;
+	int err;
+
+	memset(cmd, 0, sizeof(struct mmc_command));
+
+	cmd->opcode = opcode;
+	cmd->arg = arg;
+	if (cmd->opcode == MMC_ERASE) {
+		cmd->flags = MMC_RSP_SPI_R1B | MMC_RSP_R1B | MMC_CMD_AC;
+		cmd->busy_timeout = mmc_erase_timeout(card, arg, qty);
+	} else {
+		cmd->flags = MMC_RSP_SPI_R1 | MMC_RSP_R1 | MMC_CMD_AC;
+	}
+
+	err = mmc_cmdq_wait_for_dcmd(card->host, cmdq_req);
+	if (err) {
+		pr_notice("%s: group start error %d, status %#x\n",
+				__func__, err, cmd->resp[0]);
+		return -EIO;
+	}
+	return 0;
+}
+
+static int mmc_cmdq_do_erase(struct mmc_cmdq_req *cmdq_req,
+			struct mmc_card *card, unsigned int from,
+			unsigned int to, unsigned int arg)
+{
+	struct mmc_command *cmd = cmdq_req->mrq.cmd;
+	unsigned int qty = 0;
+	unsigned long timeout;
+	unsigned int fr, nr;
+	int err;
+
+	fr = from;
+	nr = to - from + 1;
+
+	qty = mmc_get_erase_qty(card, from, to);
+
+	if (!mmc_card_blockaddr(card)) {
+		from <<= 9;
+		to <<= 9;
+	}
+
+	err = mmc_cmdq_send_erase_cmd(cmdq_req, card, MMC_ERASE_GROUP_START,
+			from, qty);
+	if (err)
+		goto out;
+
+	err = mmc_cmdq_send_erase_cmd(cmdq_req, card, MMC_ERASE_GROUP_END,
+			to, qty);
+	if (err)
+		goto out;
+
+	err = mmc_cmdq_send_erase_cmd(cmdq_req, card, MMC_ERASE,
+			arg, qty);
+	if (err)
+		goto out;
+
+	timeout = jiffies + msecs_to_jiffies(MMC_CORE_TIMEOUT_MS);
+	do {
+		memset(cmd, 0, sizeof(struct mmc_command));
+		cmd->opcode = MMC_SEND_STATUS;
+		cmd->arg = card->rca << 16;
+		cmd->flags = MMC_RSP_R1 | MMC_CMD_AC;
+		/* Do not retry else we can't see errors */
+		err = mmc_cmdq_wait_for_dcmd(card->host, cmdq_req);
+		if (err || (cmd->resp[0] & 0xFDF92000)) {
+			pr_notice("error %d requesting status %#x\n",
+				err, cmd->resp[0]);
+			err = -EIO;
+			goto out;
+		}
+		/* Timeout if the device never becomes ready for data and
+		 * never leaves the program state.
+		 */
+		if (time_after(jiffies, timeout)) {
+			pr_notice("%s: %s Card stuck in programming state!\n",
+				mmc_hostname(card->host), __func__);
+			err =  -EIO;
+			goto out;
+		}
+	} while (!(cmd->resp[0] & R1_READY_FOR_DATA) ||
+		 (R1_CURRENT_STATE(cmd->resp[0]) == R1_STATE_PRG));
+out:
+	return err;
+}
+#endif
+
 static int mmc_do_erase(struct mmc_card *card, unsigned int from,
 			unsigned int to, unsigned int arg)
 {
@@ -3210,6 +3539,77 @@ static unsigned int mmc_align_erase_size(struct mmc_card *card,
 
 	return nr_new;
 }
+
+#ifdef CONFIG_MTK_EMMC_HW_CQ
+int mmc_erase_sanity_check(struct mmc_card *card, unsigned int from,
+		unsigned int nr, unsigned int arg)
+{
+	if (!(card->host->caps & MMC_CAP_ERASE) ||
+	    !(card->csd.cmdclass & CCC_ERASE))
+		return -EOPNOTSUPP;
+
+	if (!card->erase_size)
+		return -EOPNOTSUPP;
+
+	if (mmc_card_sd(card) && arg != MMC_ERASE_ARG)
+		return -EOPNOTSUPP;
+
+	if ((arg & MMC_SECURE_ARGS) &&
+	    !(card->ext_csd.sec_feature_support & EXT_CSD_SEC_ER_EN))
+		return -EOPNOTSUPP;
+
+	if ((arg & MMC_TRIM_ARGS) &&
+	    !(card->ext_csd.sec_feature_support & EXT_CSD_SEC_GB_CL_EN))
+		return -EOPNOTSUPP;
+
+	if (arg == MMC_SECURE_ERASE_ARG) {
+		if (from % card->erase_size || nr % card->erase_size)
+			return -EINVAL;
+	}
+	return 0;
+}
+
+int mmc_cmdq_erase(struct mmc_cmdq_req *cmdq_req,
+	      struct mmc_card *card, unsigned int from, unsigned int nr,
+	      unsigned int arg)
+{
+	unsigned int rem, to = from + nr;
+	int ret;
+
+	ret = mmc_erase_sanity_check(card, from, nr, arg);
+	if (ret)
+		return ret;
+
+	if (arg == MMC_ERASE_ARG) {
+		rem = from % card->erase_size;
+		if (rem) {
+			rem = card->erase_size - rem;
+			from += rem;
+			if (nr > rem)
+				nr -= rem;
+			else
+				return 0;
+		}
+		rem = nr % card->erase_size;
+		if (rem)
+			nr -= rem;
+	}
+
+	if (nr == 0)
+		return 0;
+
+	to = from + nr;
+
+	if (to <= from)
+		return -EINVAL;
+
+	/* 'from' and 'to' are inclusive */
+	to -= 1;
+
+	return mmc_cmdq_do_erase(cmdq_req, card, from, to, arg);
+}
+EXPORT_SYMBOL(mmc_cmdq_erase);
+#endif
 
 /**
  * mmc_erase - erase sectors.
@@ -3483,6 +3883,48 @@ static void mmc_hw_reset_for_init(struct mmc_host *host)
 	host->ops->hw_reset(host);
 }
 
+#ifdef CONFIG_MTK_EMMC_HW_CQ
+/*
+ * mmc_cmdq_hw_reset: Helper API for doing
+ * reset_all of host and reinitializing card.
+ * This must be called with mmc_claim_host
+ * acquired by the caller.
+ */
+int mmc_cmdq_hw_reset(struct mmc_host *host)
+{
+	if (!host->bus_ops->reset)
+		return -EOPNOTSUPP;
+
+	return host->bus_ops->reset(host);
+}
+EXPORT_SYMBOL(mmc_cmdq_hw_reset);
+
+int mmc_cmdq_halt_on_empty_queue(struct mmc_host *host)
+{
+	int err = 0;
+
+	err = wait_event_interruptible(host->cmdq_ctx.queue_empty_wq,
+				(!host->cmdq_ctx.active_reqs));
+	if (host->cmdq_ctx.active_reqs) {
+		pr_notice("%s: %s: unexpected active requests (%lu)\n",
+			mmc_hostname(host), __func__,
+			host->cmdq_ctx.active_reqs);
+		return -EPERM;
+	}
+
+	err = mmc_cmdq_halt(host, true);
+	if (err) {
+		pr_notice("%s: %s: mmc_cmdq_halt failed (%d)\n",
+		       mmc_hostname(host), __func__, err);
+		goto out;
+	}
+
+out:
+	return err;
+}
+EXPORT_SYMBOL(mmc_cmdq_halt_on_empty_queue);
+#endif
+
 int mmc_hw_reset(struct mmc_host *host)
 {
 	int ret;
@@ -3554,6 +3996,132 @@ static int mmc_rescan_try_freq(struct mmc_host *host, unsigned freq)
 	return -EIO;
 }
 
+#if defined(MOUNT_EXSTORAGE_IF)
+/*ye.zhang@BSP, 2016-05-01, add for CTSI support external storage or not*/
+static struct workqueue_struct *exStorage_prop_wq;
+static int set_counter = 0;
+enum eStorage_prop_value
+{
+	EXTERNAL_STORAGE_UNKNOWN = -1,
+	EXTERNAL_STORAGE_UNSUPPORT = 0,
+	EXTERNAL_STORAGE_SUPPORT = 1,
+};
+struct exStorage_prop_struct
+{
+	int external_storage_support;
+	int prev_support_value;
+	wait_queue_head_t prop_waitq;
+	struct delayed_work dwork;
+	struct mutex dwork_mutex_lock;
+	int dwork_flag;
+	struct mmc_host *host;
+};
+static struct exStorage_prop_struct exStor_prop;
+
+static ssize_t support_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct mmc_host *host = exStor_prop.host;
+
+	if (!host)
+		return -EINVAL;
+
+	printk(KERN_EMERG"zhye::%s::prev_value=%d  new_value=%d\n",
+		mmc_hostname(host), exStor_prop.prev_support_value, exStor_prop.external_storage_support);
+
+	return snprintf(buf, PAGE_SIZE, "%d\n",
+			exStor_prop.external_storage_support);
+}
+
+static ssize_t support_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct mmc_host *host = exStor_prop.host;
+	int value;
+
+	if ((!host) && set_counter)
+		return -EINVAL;
+
+	set_counter++;
+
+	sscanf(buf,"%d",&value);
+
+	if (value >= -1 && value <= 1 )
+		exStor_prop.external_storage_support = value;
+	else{
+		printk(KERN_EMERG"zhye::%s::invalid value %d, do nothing\n",__func__,value);
+		return count;
+	}
+
+	if (!host)
+	{
+		printk(KERN_EMERG"zhye::%s::Only set flag, do not detect change, set_counter=%d\n",__func__,set_counter);
+		return count;
+	}
+
+/*	if (exStor_prop.external_storage_support != EXTERNAL_STORAGE_UNKNOWN)
+		wake_up(&exStor_prop.prop_waitq);*/
+	printk(KERN_EMERG"zhye::%s::prev_value=%d  new_value=%d\n",
+			mmc_hostname(host), exStor_prop.prev_support_value, exStor_prop.external_storage_support);
+	if (exStor_prop.external_storage_support != exStor_prop.prev_support_value)
+	{
+		if (exStor_prop.external_storage_support == EXTERNAL_STORAGE_UNKNOWN
+			|| (exStor_prop.external_storage_support == EXTERNAL_STORAGE_SUPPORT && exStor_prop.prev_support_value == EXTERNAL_STORAGE_UNKNOWN))
+		{
+			printk(KERN_EMERG"zhye::%s::do nothing because default state is support\n", __func__);
+			exStor_prop.prev_support_value = exStor_prop.external_storage_support;
+		}
+		else{
+			printk(KERN_EMERG"zhye::%s::schedule rescan\n",__func__);
+			mmc_detect_change(host, 0);
+			exStor_prop.prev_support_value = exStor_prop.external_storage_support;
+		}
+	}
+
+	return count;
+}
+static DEVICE_ATTR(exStorage_support, S_IRUGO | S_IWUSR,
+		support_show, support_store);
+
+static struct attribute *eStorage_property_attrs[] = {
+	&dev_attr_exStorage_support.attr,
+	NULL,
+};
+static struct attribute_group eStorage_property_attr_grp = {
+	.attrs = eStorage_property_attrs,
+};
+
+static void exStorage_prop_func(struct work_struct *work)
+{
+	struct mmc_host *host;
+
+	if ((exStor_prop.host == NULL) || strcmp(mmc_hostname(exStor_prop.host), "mmc1"))
+	{
+		printk(KERN_EMERG"%s::mmc1::wrong sd_prop.host address\n",__func__);
+		return;
+	}
+	
+	if (exStor_prop.dwork_flag == 1)
+		return;
+
+	mutex_lock(&exStor_prop.dwork_mutex_lock);
+	exStor_prop.dwork_flag = 1;
+	mutex_unlock(&exStor_prop.dwork_mutex_lock);
+	
+	host = exStor_prop.host;
+	if (exStor_prop.external_storage_support == EXTERNAL_STORAGE_UNKNOWN)
+	{
+		wait_event(exStor_prop.prop_waitq, exStor_prop.external_storage_support != EXTERNAL_STORAGE_UNKNOWN);
+
+		mmc_schedule_delayed_work(&host->detect, HZ);
+	}
+
+	mutex_lock(&exStor_prop.dwork_mutex_lock);
+	exStor_prop.dwork_flag = 0;
+	mutex_unlock(&exStor_prop.dwork_mutex_lock);
+}
+#endif//MOUNT_EXSTORAGE_IF
+
 int _mmc_detect_card_removed(struct mmc_host *host)
 {
 	int ret;
@@ -3575,10 +4143,19 @@ int _mmc_detect_card_removed(struct mmc_host *host)
 		pr_debug("%s: card removed too slowly\n", mmc_hostname(host));
 	}
 
+#if defined(MOUNT_EXSTORAGE_IF)
+/*ye.zhang@BSP, 2016-05-01, add for CTSI support external storage or not*/
+	if (ret || (!strcmp(mmc_hostname(host), "mmc1") && exStor_prop.external_storage_support == EXTERNAL_STORAGE_UNSUPPORT)) {
+		mmc_card_set_removed(host->card);
+		ret = -1;
+		pr_debug("%s: card remove detected\n", mmc_hostname(host));
+	}
+#else //MOUNT_EXSTORAGE_IF
 	if (ret) {
 		mmc_card_set_removed(host->card);
 		pr_debug("%s: card remove detected\n", mmc_hostname(host));
 	}
+#endif//MOUNT_EXSTORAGE_IF
 
 	return ret;
 }
@@ -3630,6 +4207,23 @@ void mmc_rescan(struct work_struct *work)
 	if (host->rescan_disable)
 		return;
 
+#if defined(MOUNT_EXSTORAGE_IF)
+/*ye.zhang@BSP, 2016-05-01, add for CTSI support external storage or not*/
+	if (!mmc_card_is_removable(host) && (!strcmp(mmc_hostname(host), "mmc1")))
+	{
+		if ((exStor_prop.external_storage_support == EXTERNAL_STORAGE_UNSUPPORT)
+			&&(exStor_prop.prev_support_value == EXTERNAL_STORAGE_UNSUPPORT))
+				return;
+		/*else if ((exStor_prop.external_storage_support == EXTERNAL_STORAGE_UNKNOWN))
+		{
+			queue_delayed_work(exStorage_prop_wq, &exStor_prop.dwork, msecs_to_jiffies(10));
+			return;
+		}*/
+
+		exStor_prop.prev_support_value = exStor_prop.external_storage_support;
+	}
+#endif//MOUNT_EXSTORAGE_IF
+
 	/* If there is a non-removable card registered, only scan once */
 	if (!mmc_card_is_removable(host) && host->rescan_entered)
 		return;
@@ -3662,8 +4256,13 @@ void mmc_rescan(struct work_struct *work)
 
 	/* if there still is a card present, stop here */
 	if (host->bus_ops != NULL) {
-		mmc_bus_put(host);
-		goto out;
+#if defined(MOUNT_EXSTORAGE_IF)
+		if (strcmp(mmc_hostname(host), "mmc1") || exStor_prop.external_storage_support != EXTERNAL_STORAGE_UNSUPPORT)
+#endif//MOUNT_EXSTORAGE_IF
+		{
+			mmc_bus_put(host);
+			goto out;
+		}
 	}
 
 	/*
@@ -3673,8 +4272,13 @@ void mmc_rescan(struct work_struct *work)
 	mmc_bus_put(host);
 
 	mmc_claim_host(host);
-	if (mmc_card_is_removable(host) && host->ops->get_cd &&
-			host->ops->get_cd(host) == 0) {
+	if ((mmc_card_is_removable(host) && host->ops->get_cd &&
+			host->ops->get_cd(host) == 0)
+		#if defined(MOUNT_EXSTORAGE_IF)
+		/*ye.zhang@BSP, 2016-05-01, add for CTSI support external storage or not*/
+		|| (!strcmp(mmc_hostname(host), "mmc1") && exStor_prop.external_storage_support == EXTERNAL_STORAGE_UNSUPPORT)
+		#endif//MOUNT_EXSTORAGE_IF
+		) {
 		mmc_power_off(host);
 		mmc_release_host(host);
 		goto out;
@@ -3695,6 +4299,10 @@ void mmc_rescan(struct work_struct *work)
 
 void mmc_start_host(struct mmc_host *host)
 {
+#if defined(MOUNT_EXSTORAGE_IF)
+/*ye.zhang@BSP, 2016-02-26, add for CTSI support external storage or not*/
+	int err;
+#endif//MOUNT_EXSTORAGE_IF
 	host->f_init = max(freqs[0], host->f_min);
 	host->rescan_disable = 0;
 	host->ios.power_mode = MMC_POWER_UNDEFINED;
@@ -3707,6 +4315,21 @@ void mmc_start_host(struct mmc_host *host)
 	mmc_release_host(host);
 
 	mmc_gpiod_request_cd_irq(host);
+
+#if defined(MOUNT_EXSTORAGE_IF)
+/*ye.zhang@BSP, 2016-02-26, add for CTSI support external storage or not*/
+	if (!strcmp(mmc_hostname(host),"mmc0"))
+	{
+		printk(KERN_EMERG"%s mmc0\n",__func__);
+		err = sysfs_create_group(&host->class_dev.kobj,&eStorage_property_attr_grp);
+	}
+	if (!strcmp(mmc_hostname(host),"mmc1"))
+	{
+		exStor_prop.host = host;
+		printk(KERN_EMERG"%s mmc1\n",__func__);
+	}
+#endif//MOUNT_EXSTORAGE_IF
+
 	_mmc_detect_change(host, 0, false);
 }
 
@@ -3722,7 +4345,11 @@ void mmc_stop_host(struct mmc_host *host)
 		disable_irq(host->slot.cd_irq);
 
 	host->rescan_disable = 1;
+#ifndef VENDOR_EDIT //yixue.ge@bsp.drv modify
 	cancel_delayed_work_sync(&host->detect);
+#else
+	cancel_delayed_work(&host->detect);
+#endif
 
 	/* clear pm flags now and let card drivers set them as needed */
 	host->pm_flags = 0;
@@ -3928,6 +4555,18 @@ EXPORT_SYMBOL(mmc_set_embedded_sdio_data);
 static int __init mmc_init(void)
 {
 	int ret;
+
+#if defined(MOUNT_EXSTORAGE_IF)
+/*ye.zhang@BSP, 2016-05-01, add for CTSI support external storage or not*/
+	exStorage_prop_wq = create_singlethread_workqueue("exStorage_prop_wq");
+	INIT_DELAYED_WORK(&exStor_prop.dwork, exStorage_prop_func);
+	exStor_prop.external_storage_support = EXTERNAL_STORAGE_UNKNOWN;
+	exStor_prop.prev_support_value= EXTERNAL_STORAGE_UNKNOWN;
+	exStor_prop.dwork_flag = 0;
+	exStor_prop.host = NULL;
+	mutex_init(&exStor_prop.dwork_mutex_lock);
+	init_waitqueue_head(&exStor_prop.prop_waitq);
+#endif//MOUNT_EXSTORAGE_IF
 
 	ret = mmc_register_bus();
 	if (ret)

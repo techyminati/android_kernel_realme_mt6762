@@ -30,10 +30,18 @@ struct mmc_gpio {
 	char cd_label[0];
 };
 
+#ifdef ODM_HQ_EDIT
+/*Wenchao.Du@ODM_HQ.BSP.Kernel.Driver 2019.01.08 add sdcard poweroff quick*/
+extern void msdc_sd_power_off_quick(void);
+#endif /*ODM_HQ_EDIT*/
 static irqreturn_t mmc_gpio_cd_irqt(int irq, void *dev_id)
 {
 	/* Schedule a card detection after a debounce timeout */
 	struct mmc_host *host = dev_id;
+#ifdef ODM_HQ_EDIT
+/*Wenchao.Du@ODM_HQ.BSP.Kernel.Driver 2019.01.08 add sdcard poweroff quick*/
+	msdc_sd_power_off_quick();
+#endif /*ODM_HQ_EDIT*/
 
 	host->trigger_card_event = true;
 	mmc_detect_change(host, msecs_to_jiffies(200));
