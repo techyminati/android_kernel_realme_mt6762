@@ -32,7 +32,7 @@
 /* #include <mach/mt_typedefs.h> */
 #include <mt-plat/sync_write.h>
 /*#include "mt_clkmgr.h"*/
-#include "mt6761_clkmgr.h"
+#include "mt6779_clkmgr.h"
 /* #include <mach/mt_dcm.h> */
 /* #include <mach/mt_idvfs.h> */ /* Fix when idvfs ready */
 /*#include "mt_spm.h"*/
@@ -56,18 +56,10 @@ void __iomem *clk_apmixed_base;
 void __iomem *clk_mcucfg_base;
 #endif
 
-#define ARMPLL_L_EXIST		0
-#define CCIPLL_EXIST		0
 
 /************************************************
  **********         log debug          **********
  ************************************************/
-#define TAG     "[Power/clkmgr] "
-
-#define clk_info(fmt, args...)      \
-	pr_info(TAG fmt, ##args)
-#define clk_dbg(fmt, args...)       \
-	pr_debug(TAG fmt, ##args)
 
 /************************************************
  **********      register access       **********
@@ -102,43 +94,30 @@ void __iomem *clk_mcucfg_base;
  **********         subsys part        **********
  ************************************************/
 /*ARMPLL1*/
-#define ARMPLL_CON0		(clk_apmixed_base + 0x30C)
-#define ARMPLL_CON1		(clk_apmixed_base + 0x310)
-#define ARMPLL_CON2		(clk_apmixed_base + 0x314)
-#define ARMPLL_CON3		(clk_apmixed_base + 0x318)
-
-#if ARMPLL_L_EXIST
+#define ARMPLL_LL_CON0           (clk_apmixed_base + 0x200)
+#define ARMPLL_LL_CON1           (clk_apmixed_base + 0x204)
+#define ARMPLL_LL_PWR_CON0           (clk_apmixed_base + 0x20C)
 /*ARMPLL2*/
-#define ARMPLL_L_CON0		(clk_apmixed_base + 0x21C)
-#define ARMPLL_L_CON1		(clk_apmixed_base + 0x220)
-#define ARMPLL_L_CON2		(clk_apmixed_base + 0x224)
-#define ARMPLL_L_CON3		(clk_apmixed_base + 0x228)
-#endif
-
-#if CCIPLL_EXIST
+#define ARMPLL_L_CON0           (clk_apmixed_base + 0x210)
+#define ARMPLL_L_CON1           (clk_apmixed_base + 0x214)
+#define ARMPLL_L_PWR_CON0           (clk_apmixed_base + 0x21C)
 /*CCIPLL*/
-#define CCIPLL_CON0		(clk_apmixed_base + 0x22C)
-#define CCIPLL_CON1		(clk_apmixed_base + 0x230)
-#define CCIPLL_CON2		(clk_apmixed_base + 0x234)
-#define CCIPLL_CON3		(clk_apmixed_base + 0x238)
-#endif
-
+#define CCIPLL_CON0           (clk_apmixed_base + 0x2A0)
+#define CCIPLL_CON1           (clk_apmixed_base + 0x2A4)
+#define CCIPLL_PWR_CON0           (clk_apmixed_base + 0x2AC)
 /*MMPLL*/
-#define MMPLL_CON0		(clk_apmixed_base + 0x330)
-#define MMPLL_CON1		(clk_apmixed_base + 0x334)
-#define MMPLL_CON2		(clk_apmixed_base + 0x338)
-#define MMPLL_CON3		(clk_apmixed_base + 0x33C)
-
+#define MMPLL_CON0           (clk_apmixed_base + 0x280)
+#define MMPLL_CON1           (clk_apmixed_base + 0x284)
+#define MMPLL_PWR_CON0           (clk_apmixed_base + 0x28C)
 /*GPUPLL*/
-#define MFGPLL_CON0		(clk_apmixed_base + 0x218)
-#define MFGPLL_CON1		(clk_apmixed_base + 0x21C)
-#define MFGPLL_CON2		(clk_apmixed_base + 0x220)
-#define MFGPLL_CON3		(clk_apmixed_base + 0x224)
+#define MFGPLL_CON0           (clk_apmixed_base + 0x250)
+#define MFGPLL_CON1           (clk_apmixed_base + 0x254)
+#define MFGPLL_PWR_CON0           (clk_apmixed_base + 0x25C)
 
 /* MCUCFG Register */
-#define MP0_PLL_DIV_CFG		(clk_mcucfg_base + 0x7A0) /*ARMPLL_LL*/
-#define MP1_PLL_DIV_CFG		(clk_mcucfg_base + 0x7A4) /*ARMPLL_L*/
-#define BUS_PLL_DIV_CFG		(clk_mcucfg_base + 0x7C0) /*CCIPLL*/
+#define MP0_PLL_DIV_CFG           (clk_mcucfg_base + 0xA2A0) /*ARMPLL_LL*/
+#define MP1_PLL_DIV_CFG           (clk_mcucfg_base + 0xA2A4) /*ARMPLL_L*/
+#define BUS_PLL_DIV_CFG           (clk_mcucfg_base + 0xA2E0) /*CCIPLL*/
 
 /************************************************
  **********         cg_clk part        **********
@@ -153,29 +132,40 @@ void __iomem *clk_mcucfg_base;
  ************************************************/
 static void clk_dump(void)
 {
-	clk_info("[ARMPLL_LL_CON0]=0x%08x\n", clk_readl(ARMPLL_CON0));
-	clk_info("[ARMPLL_LL_CON1]=0x%08x\n", clk_readl(ARMPLL_CON1));
-	clk_info("[ARMPLL_LL_CON2]=0x%08x\n", clk_readl(ARMPLL_CON2));
-	clk_info("[ARMPLL_LL_CON3]=0x%08x\n", clk_readl(ARMPLL_CON3));
-	clk_info("[MP0_PLL_DIV_CFG]=0x%08x\n", clk_readl(MP0_PLL_DIV_CFG));
-	clk_info("[CCF] ARMPLL(LL): %d\n", mt_get_abist_freq(22));
-#if ARMPLL_L_EXIST
-	clk_info("[ARMPLL_L_CON0]=0x%08x\n", clk_readl(ARMPLL_L_CON0));
-	clk_info("[ARMPLL_L_CON1]=0x%08x\n", clk_readl(ARMPLL_L_CON1));
-	clk_info("[ARMPLL_L_CON2]=0x%08x\n", clk_readl(ARMPLL_L_CON2));
-	clk_info("[ARMPLL_L_CON3]=0x%08x\n", clk_readl(ARMPLL_L_CON3));
-	clk_info("[MP1_PLL_DIV_CFG]=0x%08x\n", clk_readl(MP1_PLL_DIV_CFG));
-	clk_info("[CCF] ARMPLL(L): %d\n", mt_get_abist_freq(21));
-#endif
+	pr_notice("[ARMPLL_LL_CON0]=0x%08x\n", clk_readl(ARMPLL_LL_CON0));
+	pr_notice("[ARMPLL_LL_CON1]=0x%08x\n", clk_readl(ARMPLL_LL_CON1));
+	pr_notice("[MP0_PLL_DIV_CFG]=0x%08x\n", clk_readl(MP0_PLL_DIV_CFG));
+	pr_notice("[CCF] ARMPLL(LL): %d\n", mt_get_abist_freq(22));
 
-#if CCIPLL_EXIST
-	clk_info("[CCIPLL_CON0]=0x%08x\n", clk_readl(CCIPLL_CON0));
-	clk_info("[CCIPLL_CON1]=0x%08x\n", clk_readl(CCIPLL_CON1));
-	clk_info("[CCIPLL_CON2]=0x%08x\n", clk_readl(CCIPLL_CON2));
-	clk_info("[CCIPLL_CON3]=0x%08x\n", clk_readl(CCIPLL_CON3));
-	clk_info("[BUS_PLL_DIV_CFG]=0x%08x\n", clk_readl(BUS_PLL_DIV_CFG));
-	clk_info("[CCF] CCIPLL: %d\n", mt_get_abist_freq(49));
-#endif
+	pr_notice("[ARMPLL_L_CON0]=0x%08x\n", clk_readl(ARMPLL_L_CON0));
+	pr_notice("[ARMPLL_L_CON1]=0x%08x\n", clk_readl(ARMPLL_L_CON1));
+	pr_notice("[MP1_PLL_DIV_CFG]=0x%08x\n", clk_readl(MP1_PLL_DIV_CFG));
+	pr_notice("[CCF] ARMPLL(L): %d\n", mt_get_abist_freq(20));
+
+	pr_notice("[CCIPLL_CON0]=0x%08x\n", clk_readl(CCIPLL_CON0));
+	pr_notice("[CCIPLL_CON1]=0x%08x\n", clk_readl(CCIPLL_CON1));
+	pr_notice("[BUS_PLL_DIV_CFG]=0x%08x\n", clk_readl(BUS_PLL_DIV_CFG));
+	pr_notice("[CCF] CCIPLL: %d\n", mt_get_abist_freq(49));
+}
+
+static char last_cmd[32] = "null";
+static int fmeter_read(struct seq_file *m, void *v)
+{
+	char cmd[sizeof(last_cmd)];
+	unsigned int meter, idx = 0;
+
+	strncpy(cmd, last_cmd, sizeof(cmd));
+	cmd[sizeof(cmd) - 1] = '\0';
+
+	if (sscanf(cmd, "%d %d", &meter, &idx) == 2) {
+		if (meter == 0)
+			seq_printf(m, "ckgen(%d): %dKHZ\r\n",
+				idx, mt_get_ckgen_freq(idx));
+		else
+			seq_printf(m, "abist(%d): %dKHZ\r\n",
+				idx, mt_get_abist_freq(idx));
+	}
+	return 0;
 }
 
 static int armpll1_fsel_read(struct seq_file *m, void *v)
@@ -183,19 +173,15 @@ static int armpll1_fsel_read(struct seq_file *m, void *v)
 	return 0;
 }
 
-#if ARMPLL_L_EXIST
 static int armpll2_fsel_read(struct seq_file *m, void *v)
 {
 	return 0;
 }
-#endif
 
-#if CCIPLL_EXIST
 static int ccipll_fsel_read(struct seq_file *m, void *v)
 {
 	return 0;
 }
-#endif
 
 static int mmpll_fsel_read(struct seq_file *m, void *v)
 {
@@ -205,6 +191,19 @@ static int mmpll_fsel_read(struct seq_file *m, void *v)
 static int gpupll_fsel_read(struct seq_file *m, void *v)
 {
 	return 0;
+}
+
+static ssize_t fmeter_write(struct file *file, const char __user *buffer,
+				   size_t count, loff_t *data)
+{
+	int len = 0;
+
+	len = (count < (sizeof(last_cmd) - 1)) ? count : (sizeof(last_cmd) - 1);
+	if (copy_from_user(last_cmd, buffer, len))
+		return 0;
+	last_cmd[len] = '\0';
+
+	return count;
 }
 
 static int pll_div_value_map(int index)
@@ -234,7 +233,7 @@ static int pll_div_value_map(int index)
 #define SDM_PLL_N_INFO_MASK 0x003FFFFF /*N_INFO[21:0]*/
 #define ARMPLL_POSDIV_MASK  0x07000000 /*POSDIV[26:24]*/
 #define SDM_PLL_N_INFO_CHG  0x80000000
-#define ARMPLL_DIV_MASK	    0xFFE1FFFF /* DIVCK_SEL[21:17] */
+#define ARMPLL_DIV_MASK	    0xFFE1FFFF
 #define ARMPLL_DIV_SHIFT    17
 static ssize_t armpll1_fsel_write(struct file *file, const char __user *buffer,
 				   size_t count, loff_t *data)
@@ -252,12 +251,12 @@ static ssize_t armpll1_fsel_write(struct file *file, const char __user *buffer,
 
 	if (sscanf(desc, "%x %x", &div, &value) == 2) {
 		clk_dump();
-		ctrl_value = clk_readl(ARMPLL_CON1);
+		ctrl_value = clk_readl(ARMPLL_LL_CON1);
 		ctrl_value &= ~(SDM_PLL_N_INFO_MASK | ARMPLL_POSDIV_MASK);
-		ctrl_value |= value &
-			(SDM_PLL_N_INFO_MASK | ARMPLL_POSDIV_MASK);
+		ctrl_value |= value & (SDM_PLL_N_INFO_MASK |
+			ARMPLL_POSDIV_MASK);
 		ctrl_value |= SDM_PLL_N_INFO_CHG;
-		clk_writel(ARMPLL_CON1, ctrl_value);
+		clk_writel(ARMPLL_LL_CON1, ctrl_value);
 		udelay(20);
 		ctrl_value = clk_readl(MP0_PLL_DIV_CFG);
 		ctrl_value &= ARMPLL_DIV_MASK;
@@ -268,7 +267,6 @@ static ssize_t armpll1_fsel_write(struct file *file, const char __user *buffer,
 	return count;
 }
 
-#if ARMPLL_L_EXIST
 static ssize_t armpll2_fsel_write(struct file *file, const char __user *buffer,
 				  size_t count, loff_t *data)
 {
@@ -287,8 +285,8 @@ static ssize_t armpll2_fsel_write(struct file *file, const char __user *buffer,
 		clk_dump();
 		ctrl_value = clk_readl(ARMPLL_L_CON1);
 		ctrl_value &= ~(SDM_PLL_N_INFO_MASK | ARMPLL_POSDIV_MASK);
-		ctrl_value |= value &
-			(SDM_PLL_N_INFO_MASK | ARMPLL_POSDIV_MASK);
+		ctrl_value |= value & (SDM_PLL_N_INFO_MASK |
+			ARMPLL_POSDIV_MASK);
 		ctrl_value |= SDM_PLL_N_INFO_CHG;
 		clk_writel(ARMPLL_L_CON1, ctrl_value);
 		udelay(20);
@@ -300,9 +298,7 @@ static ssize_t armpll2_fsel_write(struct file *file, const char __user *buffer,
 	clk_dump();
 	return count;
 }
-#endif
 
-#if CCIPLL_EXIST
 static ssize_t ccipll_fsel_write(struct file *file, const char __user *buffer,
 				    size_t count, loff_t *data)
 {
@@ -321,8 +317,8 @@ static ssize_t ccipll_fsel_write(struct file *file, const char __user *buffer,
 		clk_dump();
 		ctrl_value = clk_readl(CCIPLL_CON1);
 		ctrl_value &= ~(SDM_PLL_N_INFO_MASK | ARMPLL_POSDIV_MASK);
-		ctrl_value |= value &
-			(SDM_PLL_N_INFO_MASK | ARMPLL_POSDIV_MASK);
+		ctrl_value |= value & (SDM_PLL_N_INFO_MASK |
+			ARMPLL_POSDIV_MASK);
 		ctrl_value |= SDM_PLL_N_INFO_CHG;
 		clk_writel(CCIPLL_CON1, ctrl_value);
 		udelay(20);
@@ -335,7 +331,6 @@ static ssize_t ccipll_fsel_write(struct file *file, const char __user *buffer,
 	return count;
 
 }
-#endif
 
 static ssize_t mmpll_fsel_write(struct file *file, const char __user *buffer,
 				    size_t count, loff_t *data)
@@ -393,11 +388,21 @@ static int univpll_speed_dump_read(struct seq_file *m, void *v)
 	return 0;
 }
 
+static int proc_fmeter_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, fmeter_read, NULL);
+}
+
+static const struct file_operations fmeter_proc_fops = {
+	.owner = THIS_MODULE,
+	.open = proc_fmeter_open,
+	.read = seq_read,
+	.write = fmeter_write,
+	.release = single_release,
+};
 /************ L ********************/
 static int proc_armpll1_fsel_open(struct inode *inode, struct file *file)
 {
-	clk_info("%s", __func__);
-
 	return single_open(file, armpll1_fsel_read, NULL);
 }
 
@@ -408,13 +413,9 @@ static const struct file_operations armpll1_fsel_proc_fops = {
 	.write = armpll1_fsel_write,
 	.release = single_release,
 };
-
-#if ARMPLL_L_EXIST
 /************ LL ********************/
 static int proc_armpll2_fsel_open(struct inode *inode, struct file *file)
 {
-	clk_info("%s", __func__);
-
 	return single_open(file, armpll2_fsel_read, NULL);
 }
 
@@ -425,14 +426,9 @@ static const struct file_operations armpll2_fsel_proc_fops = {
 	.write = armpll2_fsel_write,
 	.release = single_release,
 };
-#endif
-
-#if CCIPLL_EXIST
 /************ CCI ********************/
 static int proc_ccipll_fsel_open(struct inode *inode, struct file *file)
 {
-	clk_info("%s", __func__);
-
 	return single_open(file, ccipll_fsel_read, NULL);
 }
 
@@ -443,13 +439,9 @@ static const struct file_operations ccipll_fsel_proc_fops = {
 	.write = ccipll_fsel_write,
 	.release = single_release,
 };
-#endif
-
 /************ MM ********************/
 static int proc_mmpll_fsel_open(struct inode *inode, struct file *file)
 {
-	clk_info("%s", __func__);
-
 	return single_open(file, mmpll_fsel_read, NULL);
 }
 
@@ -463,8 +455,6 @@ static const struct file_operations mmpll_fsel_proc_fops = {
 /************ GPU ********************/
 static int proc_gpupll_fsel_open(struct inode *inode, struct file *file)
 {
-	clk_info("%s", __func__);
-
 	return single_open(file, gpupll_fsel_read, NULL);
 }
 
@@ -517,23 +507,21 @@ void mt_clkmgr_debug_init(void)
 
 	clkmgr_dir = proc_mkdir("clkmgr", NULL);
 	if (!clkmgr_dir) {
-		pr_info("[%s]: fail to mkdir /proc/clkmgr\n", __func__);
+		pr_notice("[%s]: fail to mkdir /proc/clkmgr\n", __func__);
 		return;
 	}
 	entry =
+	    proc_create("fmeter", 0664, clkmgr_dir,
+			&fmeter_proc_fops);
+	entry =
 	    proc_create("armpll1_fsel", 0664, clkmgr_dir,
 			&armpll1_fsel_proc_fops);
-#if ARMPLL_L_EXIST
 	entry =
 	    proc_create("armpll2_fsel", 0664, clkmgr_dir,
 			&armpll2_fsel_proc_fops);
-#endif
-
-#if CCIPLL_EXIST
 	entry =
 	    proc_create("ccipll_fsel", 0664, clkmgr_dir,
 			&ccipll_fsel_proc_fops);
-#endif
 	entry =
 	    proc_create("mmpll_fsel", 0664, clkmgr_dir,
 			&mmpll_fsel_proc_fops);
@@ -571,18 +559,18 @@ void iomap(void)
 /*apmixed*/
 	node = of_find_compatible_node(NULL, NULL, "mediatek,apmixed");
 	if (!node)
-		pr_info("[CLK_APMIXED] find node failed\n");
+		pr_notice("[CLK_APMIXED] find node failed\n");
 	clk_apmixed_base = of_iomap(node, 0);
 	if (!clk_apmixed_base)
-		pr_info("[CLK_APMIXED] base failed\n");
+		pr_notice("[CLK_APMIXED] base failed\n");
 
 /*mcucfg*/
 	node = of_find_compatible_node(NULL, NULL, "mediatek,mcucfg");
 	if (!node)
-		pr_info("[CLK_MCUCFG] find node failed\n");
+		pr_notice("[CLK_MCUCFG] find node failed\n");
 	clk_mcucfg_base = of_iomap(node, 0);
 	if (!clk_mcucfg_base)
-		pr_info("[CLK_MCUCFG] base failed\n");
+		pr_notice("[CLK_MCUCFG] base failed\n");
 
 }
 #endif
