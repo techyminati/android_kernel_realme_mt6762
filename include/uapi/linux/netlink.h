@@ -30,7 +30,17 @@
 
 #define NETLINK_INET_DIAG	NETLINK_SOCK_DIAG
 
-#define MAX_LINKS 32		
+#ifndef VENDOR_EDIT
+//Junyuan.Huang@PSW.CN.WiFi.Network.internet.1197891, 2018/04/10,
+//Add code for appo sla function
+#define MAX_LINKS 32
+#else /* VENDOR_EDIT */
+//Yuan.Huang@PSW.CN.WiFi.Network.internet.1461349, 2018/06/18,
+//Add for WeChat lucky money recognition
+#define NETLINK_OPPO_NF_HOOKS	32	/*OPPO netfilter hooks*/
+#define NETLINK_OPPO_SLA  33      /*SLA NETLINK SOCK*/
+#define MAX_LINKS 35
+#endif /* VENDOR_EDIT */
 
 struct sockaddr_nl {
 	__kernel_sa_family_t	nl_family;	/* AF_NETLINK	*/

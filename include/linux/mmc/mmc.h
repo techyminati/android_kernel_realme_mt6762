@@ -89,6 +89,8 @@
 #define MMC_READ_REQUESTED_QUEUE 46   /* adtc                    R1  */
 #define MMC_WRITE_REQUESTED_QUEUE 47  /* adtc                    R1  */
 #define MMC_CMDQ_TASK_MGMT       48   /* ac                      R1b */
+#define DISCARD_QUEUE		0x1
+#define DISCARD_TASK		0x2
 
 static inline bool mmc_op_multi(u32 opcode)
 {
@@ -458,6 +460,13 @@ struct _mmc_csd {
  */
 #define EXT_CSD_MANUAL_BKOPS_MASK	0x01
 #define EXT_CSD_AUTO_BKOPS_MASK		0x02
+
+/*
+ * Command Queue
+ */
+#define EXT_CSD_CMDQ_MODE_ENABLED	BIT(0)
+#define EXT_CSD_CMDQ_DEPTH_MASK		GENMASK(4, 0)
+#define EXT_CSD_CMDQ_SUPPORTED		BIT(0)
 
 /*
  * MMC_SWITCH access modes

@@ -29,7 +29,12 @@
 #include <linux/workqueue.h>
 
 #define UEVENT_HELPER_PATH_LEN		256
+#ifdef ODM_HQ_EDIT
+/*Hanxing.Duan@ODM.HQ.BSP.CHG.Basic 2019.1.21 modify for uevet num envp*/
+#define UEVENT_NUM_ENVP			64	/* number of env pointers */
+#else /*ODM_HQ_EDIT*/
 #define UEVENT_NUM_ENVP			32	/* number of env pointers */
+#endif /*ODM_HQ_EDIT*/
 #define UEVENT_BUFFER_SIZE		2048	/* buffer for the variables */
 
 #ifdef CONFIG_UEVENT_HELPER
