@@ -1180,12 +1180,17 @@ static int cpufreq_init_policy(struct cpufreq_policy *policy)
 	/* Update governor of new_policy to the governor used before hotplug */
 	gov = find_governor(policy->last_governor);
 	if (gov) {
-		pr_debug("Restoring governor %s for cpu %d\n",
+		pr_info("@@!Restoring governor %s for cpu %d\n",
 				policy->governor->name, policy->cpu);
 	} else {
 		gov = cpufreq_default_governor();
-		if (!gov)
+		pr_info("@@!Default governor %s for cpu %d\n",
+				gov->name, policy->cpu);
+
+		if (!gov) {
+			pr_info("@@!NO governor\n");
 			return -ENODATA;
+		}
 	}
 
 	new_policy.governor = gov;
