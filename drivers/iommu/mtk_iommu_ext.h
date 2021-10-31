@@ -48,7 +48,7 @@ bool report_custom_iommu_fault(
 	unsigned int	int_state,
 	unsigned int	fault_iova,
 	unsigned int	fault_pa,
-	unsigned int	fault_id);
+	unsigned int	fault_id, bool is_vpu);
 
 void mtk_iommu_debug_init(void);
 void mtk_iommu_debug_reset(void);
@@ -74,6 +74,7 @@ void mtk_iommu_trace_log(int event,
 			 unsigned int data3);
 
 void mtk_iommu_log_dump(void *seq_file);
+int m4u_user2kernel_port(int userport);
 
 #if 0
 void mtk_smi_larb_put(struct device *larbdev);

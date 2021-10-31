@@ -79,7 +79,6 @@ struct ion_platform_data {
  */
 struct ion_client *ion_client_create(struct ion_device *dev,
 				     const char *name);
-
 /**
  * ion_client_destroy() -  free's a client and all it's handles
  * @client:	the client

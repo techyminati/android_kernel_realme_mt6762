@@ -622,12 +622,12 @@ static int ion_history_record(void *data)
 				continue;
 
 			if (g_client_history) {
-				int ret;
+				int ret = -1;
 				/* record page pool info */
-				ret =
-				ion_mm_heap_for_each_pool(write_mm_page_pool);
+				ret = ion_mm_heap_for_each_pool(
+					write_mm_page_pool);
 				if (ret < 0)
-					break;
+					continue;
 
 				if (total_orphaned_size)
 					ion_client_write_record

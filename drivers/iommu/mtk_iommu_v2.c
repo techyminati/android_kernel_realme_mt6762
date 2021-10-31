@@ -66,25 +66,32 @@
 #define REG_MMU_INVLD_START_A			0x024
 #define REG_MMU_INVLD_END_A			0x028
 
-#define REG_MMU_INV_SEL			0x038
+#define REG_MMU_INV_SEL			0x02c
 #define F_INVLD_EN0				BIT(0)
 #define F_INVLD_EN1				BIT(1)
 
 #define REG_MMU_DUMMY				0x44
 #define F_REG_MMU_IDLE_ENABLE			F_BIT_SET(0)
 
-#define REG_MMU_STANDARD_AXI_MODE		0x048
+#define REG_MMU_MISC_CRTL		0x048
+#define REG_MMU0_STANDARD_AXI_MODE  F_BIT_SET(3)
+#define REG_MMU1_STANDARD_AXI_MODE  F_BIT_SET(19)
+#define REG_MMU_MMU0_COHERENCE_EN	  F_BIT_SET(0)
+#define REG_MMU_MMU1_COHERENCE_EN	  F_BIT_SET(16)
+#define REG_MMU0_IN_ORDER_WR_EN	    F_BIT_SET(1)
+#define REG_MMU1_IN_ORDER_WR_EN	    F_BIT_SET(17)
+#define F_MMU_MMU1_HALF_ENTRY_MODE_L	F_BIT_SET(21)
+#define F_MMU_MMU0_HALF_ENTRY_MODE_L	F_BIT_SET(5)
+#define F_MMU_MMU1_BLOCKING_MODE_L	 F_BIT_SET(20)
+#define F_MMU_MMU0_BLOCKING_MODE_L	 F_BIT_SET(4)
+
 #define REG_MMU_DCM_DIS			0x050
 
-#define REG_MMU_WR_LEN				0x54
-#define F_MMU_WR_THROT_DIS(sel)		F_VAL(sel, 11, 10)
-#define F_MMU_MMU1_WRITE_LEN			F_MSK(9, 5)
-#define F_MMU_MMU0_WRITE_LEN			F_MSK(4, 0)
-
-#define REG_MMU_MMU_COHERENCE_EN		0x80
-#define REG_MMU_IN_ORDER_WR_EN		0x84
-#define REG_MMU_MMU_TABLE_WALK_DIS		0x88
-#define REG_MMU_MMU_MTLB_RESERVE_MODE_DIS	0x8c
+#define REG_MMU_WR_LEN	  (0x54)
+#define F_MMU_MMU0_WR_THROT_DIS    F_BIT_SET(5)
+#define F_MMU_MMU1_WR_THROT_DIS    F_BIT_SET(21)
+#define F_MMU_MMU1_WRITE_LEN    F_MSK(20, 16)
+#define F_MMU_MMU0_WRITE_LEN    F_MSK(4, 0)
 
 #define REG_MMU_CTRL_REG			0x110
 #define F_MMU_CTRL_HIT_AT_PFQ_EN(en)		F_BIT_VAL(en, 11)
@@ -124,8 +131,8 @@
 
 #define F_INT_MMU0_MAIN_MSK			F_MSK(6, 0)
 #define F_INT_MMU1_MAIN_MSK			F_MSK(13, 7)
-#define F_INT_MMU0_MAU_MSK			F_MSK(17, 14)
-#define F_INT_MMU1_MAU_MSK			F_MSK(21, 18)
+#define F_INT_MMU0_MAU_MSK			F_MSK(14, 14)
+#define F_INT_MMU1_MAU_MSK			F_MSK(15, 15)
 
 #define REG_MMU_CPE_DONE			0x12C
 
@@ -140,6 +147,7 @@
 #define REG_MMU_INVLD_PA(mmu)			(0x140+((mmu)<<3))
 #define REG_MMU_INT_ID(mmu)			(0x150+((mmu)<<2))
 #define F_MMU0_INT_ID_TF_MSK			(~0x3)	/* only for MM iommu.*/
+#define F_MMU_INT_TF_MSK			F_MSK(11, 0)
 
 /* IO virtual address start page frame number */
 #define IOVA_START_PFN		(1)
@@ -159,7 +167,7 @@ inline void m4uHw_set_field_by_mask(void __iomem *M4UBase, unsigned int reg,
 
 
 /* bit[9:7] indicate larbid */
-#define F_MMU0_INT_ID_LARB_ID(a)		(((a) >> 7) & 0x7)
+#define F_MMU0_INT_ID_LARB_ID(a)		(((a) >> 7) & 0xf)
 /*
  * bit[6:2] indicate portid, bit[1:0] indicate master id, every port
  * have four types of command, master id indicate the m4u port's command
@@ -306,6 +314,8 @@ static void mtk_iommu_isr_record(void)
 		}
 	}
 }
+static phys_addr_t mtk_iommu_iova_to_phys(struct iommu_domain *domain,
+					  dma_addr_t iova);
 
 static irqreturn_t mtk_iommu_isr(int irq, void *dev_id)
 {
@@ -315,6 +325,10 @@ static irqreturn_t mtk_iommu_isr(int irq, void *dev_id)
 	unsigned int fault_larb, fault_port;
 	bool layer, write;
 	int slave_id = 0;
+#ifdef CONFIG_MACH_MT6779
+	unsigned int m4uid = data->m4uid;
+#endif
+	phys_addr_t pa;
 
 	/* Read error info from registers */
 	regval = readl_relaxed(data->base + REG_MMU_L2_FAULT_ST);
@@ -333,6 +347,8 @@ static irqreturn_t mtk_iommu_isr(int irq, void *dev_id)
 
 	pr_info("iommu L2 int sta=0x%x, main sta=0x%x\n", regval, int_state);
 	fault_iova = readl_relaxed(data->base + REG_MMU_FAULT_VA(slave_id));
+	pa = mtk_iommu_iova_to_phys(&dom->domain, fault_iova & PAGE_MASK);
+	pr_info("iova=%x,pa=%x\n", fault_iova, (unsigned int)pa);
 	layer = fault_iova & F_MMU_FAULT_VA_LAYER_BIT;
 	write = fault_iova & F_MMU_FAULT_VA_WRITE_BIT;
 	fault_iova &= F_MMU_FAULT_VA_MSK;
@@ -340,15 +356,23 @@ static irqreturn_t mtk_iommu_isr(int irq, void *dev_id)
 	regval = readl_relaxed(data->base + REG_MMU_INT_ID(slave_id));
 	fault_larb = F_MMU0_INT_ID_LARB_ID(regval);
 	fault_port = F_MMU0_INT_ID_PORT_ID(regval);
-
+#ifdef CONFIG_MACH_MT6779
+	if (m4uid) {
+		fault_port = M4U_PORT_VPU;
+		fault_larb = 13;
+		goto report;
+	}
+#endif
 	if (enable_custom_tf_report()) {
 		report_custom_iommu_fault(data->base,
 					  int_state,
 					  fault_iova,
 					  fault_pa,
-					  regval);
+					  regval & F_MMU_INT_TF_MSK, false);
 	}
-
+#ifdef CONFIG_MACH_MT6779
+report:
+#endif
 	if (report_iommu_fault(&dom->domain, data->dev, fault_iova,
 			      write ? IOMMU_FAULT_WRITE : IOMMU_FAULT_READ)) {
 		dev_err_ratelimited(
@@ -515,6 +539,20 @@ static void mtk_iommu_detach_device(struct iommu_domain *domain,
 	mtk_iommu_config(data, dev, false);
 }
 
+static phys_addr_t mtk_iommu_iova_to_phys(struct iommu_domain *domain,
+					  dma_addr_t iova)
+{
+	struct mtk_iommu_domain *dom = to_mtk_domain(domain);
+	unsigned long flags;
+	phys_addr_t pa;
+
+	spin_lock_irqsave(&dom->pgtlock, flags);
+	pa = dom->iop->iova_to_phys(dom->iop, iova);
+	spin_unlock_irqrestore(&dom->pgtlock, flags);
+
+	return pa;
+}
+
 static int mtk_iommu_map(struct iommu_domain *domain, unsigned long iova,
 			 phys_addr_t paddr, size_t size, int prot)
 {
@@ -543,19 +581,7 @@ static size_t mtk_iommu_unmap(struct iommu_domain *domain,
 	return unmapsz;
 }
 
-static phys_addr_t mtk_iommu_iova_to_phys(struct iommu_domain *domain,
-					  dma_addr_t iova)
-{
-	struct mtk_iommu_domain *dom = to_mtk_domain(domain);
-	unsigned long flags;
-	phys_addr_t pa;
 
-	spin_lock_irqsave(&dom->pgtlock, flags);
-	pa = dom->iop->iova_to_phys(dom->iop, iova);
-	spin_unlock_irqrestore(&dom->pgtlock, flags);
-
-	return pa;
-}
 
 #ifdef CONFIG_ARM64
 static int mtk_iommu_add_device(struct device *dev)
@@ -784,6 +810,7 @@ err_free_mem:
 
 #ifdef CONFIG_MTK_MEMCFG
 bool dm_region;
+#define VPU_RESERVE_END_MVA		0x82600000
 static void mtk_iommu_get_dm_region(struct device *dev, struct list_head *list)
 {
 	struct iommu_dm_region *region;
@@ -794,7 +821,7 @@ static void mtk_iommu_get_dm_region(struct device *dev, struct list_head *list)
 		return;
 
 	INIT_LIST_HEAD(&region->list);
-	region->start = mtkfb_get_fb_base();
+	region->start = VPU_RESERVE_END_MVA;
 	region->length = mtkfb_get_fb_size();
 	region->prot = IOMMU_READ | IOMMU_WRITE;
 	list_add_tail(&region->list, list);
@@ -865,8 +892,10 @@ static int mtk_iommu_hw_init(const struct mtk_iommu_data *data)
 
 	writel_relaxed(regval, data->base + REG_MMU_CTRL_REG);
 
-	writel_relaxed(0x3, data->base + REG_MMU_MMU_COHERENCE_EN);
-	writel_relaxed(0, data->base + REG_MMU_MMU_TABLE_WALK_DIS);
+	m4uHw_set_field_by_mask(data->base, REG_MMU_MISC_CRTL,
+				REG_MMU_MMU0_COHERENCE_EN, 1);
+	m4uHw_set_field_by_mask(data->base, REG_MMU_MISC_CRTL,
+			REG_MMU_MMU1_COHERENCE_EN, 1);
 
 	writel_relaxed(0x6f, data->base + REG_MMU_INT_CONTROL0);
 	writel_relaxed(0xffffffff, data->base + REG_MMU_INT_MAIN_CONTROL);
@@ -877,13 +906,19 @@ static int mtk_iommu_hw_init(const struct mtk_iommu_data *data)
 	writel_relaxed(0, data->base + REG_MMU_DCM_DIS);
 
 #ifdef CONFIG_MTK_SMI_EXT
-	writel_relaxed(0, data->base + REG_MMU_IN_ORDER_WR_EN);
+	m4uHw_set_field_by_mask(data->base, REG_MMU_MISC_CRTL,
+				REG_MMU0_IN_ORDER_WR_EN, 0);
+	m4uHw_set_field_by_mask(data->base, REG_MMU_MISC_CRTL,
+			REG_MMU1_IN_ORDER_WR_EN, 0);
 #endif
 
-	writel_relaxed(0, data->base + REG_MMU_STANDARD_AXI_MODE);
+	//writel_relaxed(0, data->base + REG_MMU_STANDARD_AXI_MODE);
 
 	m4uHw_set_field_by_mask(data->base, REG_MMU_WR_LEN,
-				F_MMU_WR_THROT_DIS(3), F_MMU_WR_THROT_DIS(0));
+				F_MMU_MMU0_WR_THROT_DIS, 0);
+	m4uHw_set_field_by_mask(data->base, REG_MMU_WR_LEN,
+				F_MMU_MMU1_WR_THROT_DIS, 0);
+
 	m4uHw_set_field_by_mask(data->base,
 				REG_MMU_DUMMY, F_REG_MMU_IDLE_ENABLE, 0);
 
@@ -987,6 +1022,8 @@ static int mtk_iommu_probe(struct platform_device *pdev)
 	list_add_tail(&data->list, &m4ulist);
 
 	iommu_cnt++;
+	if (iommu_cnt == 2)
+		data->m4uid = 1;
 	/*
 	 * trigger the bus to scan all the device to add them to iommu
 	 * domain after all the iommu have finished probe.
@@ -997,7 +1034,12 @@ static int mtk_iommu_probe(struct platform_device *pdev)
 
 	mtk_iommu_isr_pause_timer_init();
 	mtk_iommu_debug_init();
-	return component_master_add_with_match(dev, &mtk_iommu_com_ops, match);
+	if (iommu_cnt == 1) {
+		data->m4uid = 0;
+		ret = component_master_add_with_match(dev, &mtk_iommu_com_ops,
+						      match);
+	}
+	return ret;
 }
 
 static int mtk_iommu_remove(struct platform_device *pdev)
@@ -1020,7 +1062,7 @@ static int mtk_iommu_suspend(struct device *dev)
 	void __iomem *base = data->base;
 
 	reg->standard_axi_mode = readl_relaxed(base +
-					       REG_MMU_STANDARD_AXI_MODE);
+					       REG_MMU_MISC_CRTL);
 	reg->dcm_dis = readl_relaxed(base + REG_MMU_DCM_DIS);
 	reg->ctrl_reg = readl_relaxed(base + REG_MMU_CTRL_REG);
 	reg->int_control0 = readl_relaxed(base + REG_MMU_INT_CONTROL0);
@@ -1038,7 +1080,7 @@ static int mtk_iommu_resume(struct device *dev)
 	writel_relaxed(data->m4u_dom->cfg.arm_v7s_cfg.ttbr[0],
 		       base + REG_MMU_PT_BASE_ADDR);
 	writel_relaxed(reg->standard_axi_mode,
-		       base + REG_MMU_STANDARD_AXI_MODE);
+		       base + REG_MMU_MISC_CRTL);
 	writel_relaxed(reg->dcm_dis, base + REG_MMU_DCM_DIS);
 	writel_relaxed(reg->ctrl_reg, base + REG_MMU_CTRL_REG);
 	writel_relaxed(reg->int_control0, base + REG_MMU_INT_CONTROL0);
@@ -1055,7 +1097,7 @@ static const struct dev_pm_ops mtk_iommu_pm_ops = {
 
 const struct mtk_iommu_match_data mt6xxx_v0_data = {
 	.match_type = iommu_mt6xxx_v0,
-	.iommu_cnt = 1,
+	.iommu_cnt = 2,
 };
 
 static const struct of_device_id mtk_iommu_of_ids[] = {

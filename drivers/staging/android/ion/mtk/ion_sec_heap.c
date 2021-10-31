@@ -21,6 +21,7 @@
 #include <linux/vmalloc.h>
 #include <linux/slab.h>
 #include <linux/mutex.h>
+#include <linux/fdtable.h>
 #ifdef ION_TO_BE_IMPL
 #include <mmprofile.h>
 #include <mmprofile_function.h>
@@ -135,6 +136,32 @@ static void ion_sec_heap_unmap_dma(struct ion_heap *heap,
 	sg_free_table(buffer->sg_table);
 }
 
+#ifdef CONFIG_MTK_TRUSTED_MEMORY_SUBSYSTEM
+static enum TRUSTED_MEM_REQ_TYPE get_trusted_mem_type(unsigned int heap_id)
+{
+	switch (heap_id) {
+	case ION_HEAP_TYPE_MULTIMEDIA_SEC:
+		return TRUSTED_MEM_REQ_SVP;
+	case ION_HEAP_TYPE_MULTIMEDIA_PROT:
+		return TRUSTED_MEM_REQ_PROT;
+	case ION_HEAP_TYPE_MULTIMEDIA_2D_FR:
+		return TRUSTED_MEM_REQ_2D_FR;
+	case ION_HEAP_TYPE_MULTIMEDIA_WFD:
+		return TRUSTED_MEM_REQ_WFD;
+	case ION_HEAP_TYPE_MULTIMEDIA_HAPP:
+		return TRUSTED_MEM_REQ_HAPP;
+	case ION_HEAP_TYPE_MULTIMEDIA_HAPP_EXTRA:
+		return TRUSTED_MEM_REQ_HAPP_EXTRA;
+	case ION_HEAP_TYPE_MULTIMEDIA_SDSP:
+		return TRUSTED_MEM_REQ_SDSP;
+	case ION_HEAP_TYPE_MULTIMEDIA_SDSP_SHARED:
+		return TRUSTED_MEM_REQ_SDSP_SHARED;
+	default:
+		return TRUSTED_MEM_REQ_SVP;
+	}
+}
+#endif
+
 static int ion_sec_heap_allocate(struct ion_heap *heap,
 				 struct ion_buffer *buffer, unsigned long size,
 				 unsigned long align, unsigned long flags)
@@ -142,6 +169,9 @@ static int ion_sec_heap_allocate(struct ion_heap *heap,
 	u32 sec_handle = 0;
 	struct ion_sec_buffer_info *pbufferinfo = NULL;
 	u32 refcount = 0;
+#ifdef CONFIG_MTK_TRUSTED_MEMORY_SUBSYSTEM
+	enum TRUSTED_MEM_REQ_TYPE tmem_type;
+#endif
 
 	IONDBG("%s enter id %d size 0x%lx align %ld flags 0x%lx\n", __func__,
 	       heap->id, size, align, flags);
@@ -162,64 +192,15 @@ static int ion_sec_heap_allocate(struct ion_heap *heap,
 	}
 
 #ifdef CONFIG_MTK_TRUSTED_MEMORY_SUBSYSTEM
-	if (heap->id == ION_HEAP_TYPE_MULTIMEDIA_PROT) {
-		if (flags & ION_FLAG_MM_HEAP_INIT_ZERO)
-			trusted_mem_api_alloc_zero(TRUSTED_MEM_REQ_PROT,
-						   align, size, &refcount,
-						   &sec_handle,
-						   (uint8_t *)heap->name,
-						   heap->id);
-		else
-			trusted_mem_api_alloc(TRUSTED_MEM_REQ_PROT,
-					      align, size,
-					      &refcount,
-					      &sec_handle,
-					      (uint8_t *)heap->name,
-					      heap->id);
-	} else if (heap->id == ION_HEAP_TYPE_MULTIMEDIA_2D_FR) {
-		if (flags & ION_FLAG_MM_HEAP_INIT_ZERO)
-			trusted_mem_api_alloc_zero(TRUSTED_MEM_REQ_2D_FR,
-						   align, size, &refcount,
-						   &sec_handle,
-						   (uint8_t *)heap->name,
-						   heap->id);
-		else
-			trusted_mem_api_alloc(TRUSTED_MEM_REQ_2D_FR, align,
-					      size,
-					      &refcount,
-					      &sec_handle,
-					      (uint8_t *)heap->name,
-					      heap->id);
-	} else if (heap->id == ION_HEAP_TYPE_MULTIMEDIA_WFD) {
-		if (flags & ION_FLAG_MM_HEAP_INIT_ZERO)
-			trusted_mem_api_alloc_zero(TRUSTED_MEM_REQ_WFD,
-						   align,
-						   size, &refcount,
-						   &sec_handle,
-						   (uint8_t *)heap->name,
-						   heap->id);
-		else
-			trusted_mem_api_alloc(TRUSTED_MEM_REQ_WFD, align,
-					      size, &refcount,
-					      &sec_handle,
-					      (uint8_t *)heap->name,
-					      heap->id);
-	} else if (heap->id == ION_HEAP_TYPE_MULTIMEDIA_SEC) {
-		if (flags & ION_FLAG_MM_HEAP_INIT_ZERO)
-			trusted_mem_api_alloc_zero(TRUSTED_MEM_REQ_SVP,
-						   align,
-						   size, &refcount,
-						   &sec_handle,
-						   (uint8_t *)heap->name,
-						   heap->id);
-		else
-			trusted_mem_api_alloc(TRUSTED_MEM_REQ_SVP, align,
-					      size,
-					      &refcount,
-					      &sec_handle,
-					      (uint8_t *)heap->name,
-					      heap->id);
-	}
+	tmem_type = get_trusted_mem_type(heap->id);
+	if (flags & ION_FLAG_MM_HEAP_INIT_ZERO)
+		trusted_mem_api_alloc_zero(tmem_type, align, size, &refcount,
+					   &sec_handle, (uint8_t *)heap->name,
+					   heap->id);
+	else
+		trusted_mem_api_alloc(tmem_type, align, size, &refcount,
+				      &sec_handle, (uint8_t *)heap->name,
+				      heap->id);
 #elif defined(MTK_IN_HOUSE_SEC_ION_SUPPORT)
 	{
 		int ret = 0;
@@ -263,6 +244,7 @@ static int ion_sec_heap_allocate(struct ion_heap *heap,
 	pbufferinfo->dbg_info.value2 = 0;
 	pbufferinfo->dbg_info.value3 = 0;
 	pbufferinfo->dbg_info.value4 = 0;
+	pbufferinfo->pid = buffer->pid;
 	strncpy((pbufferinfo->dbg_info.dbg_name), "nothing",
 		ION_MM_DBG_NAME_LEN);
 
@@ -286,6 +268,9 @@ void ion_sec_heap_free(struct ion_buffer *buffer)
 	struct ion_sec_buffer_info *pbufferinfo =
 	    (struct ion_sec_buffer_info *)buffer->priv_virt;
 	u32 sec_handle = 0;
+#ifdef CONFIG_MTK_TRUSTED_MEMORY_SUBSYSTEM
+	enum TRUSTED_MEM_REQ_TYPE tmem_type;
+#endif
 
 	IONDBG("%s enter priv_virt %p\n", __func__, buffer->priv_virt);
 	sec_heap_total_memory -= buffer->size;
@@ -293,22 +278,10 @@ void ion_sec_heap_free(struct ion_buffer *buffer)
 	    ((struct ion_sec_buffer_info *)buffer->priv_virt)->priv_phys;
 
 #ifdef CONFIG_MTK_TRUSTED_MEMORY_SUBSYSTEM
-	if (buffer->heap->id == ION_HEAP_TYPE_MULTIMEDIA_PROT)
-		trusted_mem_api_unref(TRUSTED_MEM_REQ_PROT, sec_handle,
-				      (uint8_t *)buffer->heap->name,
-				      buffer->heap->id);
-	else if (buffer->heap->id == ION_HEAP_TYPE_MULTIMEDIA_2D_FR)
-		trusted_mem_api_unref(TRUSTED_MEM_REQ_PROT, sec_handle,
-				      (uint8_t *)buffer->heap->name,
-				      buffer->heap->id);
-	else if (buffer->heap->id == ION_HEAP_TYPE_MULTIMEDIA_WFD)
-		trusted_mem_api_unref(TRUSTED_MEM_REQ_PROT, sec_handle,
-				      (uint8_t *)buffer->heap->name,
-				      buffer->heap->id);
-	else if (buffer->heap->id == ION_HEAP_TYPE_MULTIMEDIA_SEC)
-		trusted_mem_api_unref(TRUSTED_MEM_REQ_SVP, sec_handle,
-				      (uint8_t *)buffer->heap->name,
-				      buffer->heap->id);
+	tmem_type = get_trusted_mem_type(heap->id);
+	trusted_mem_api_unref(tmem_type, sec_handle,
+			      (uint8_t *)buffer->heap->name,
+			      buffer->heap->id);
 #elif defined(MTK_IN_HOUSE_SEC_ION_SUPPORT)
 	{
 		int ret = 0;
@@ -529,46 +502,149 @@ skip_client_entry:
 	}
 }
 
+struct dump_fd_data {
+	struct task_struct *p;
+	struct seq_file *s;
+};
+
+static int __do_dump_share_fd(
+	const void *data,
+	struct file *file, unsigned int fd)
+{
+	const struct dump_fd_data *d = data;
+	struct seq_file *s = d->s;
+	struct task_struct *p = d->p;
+	struct ion_buffer *buffer;
+	struct ion_sec_buffer_info *bug_info;
+
+	buffer = ion_drv_file_to_buffer(file);
+	if (IS_ERR_OR_NULL(buffer))
+		return 0;
+
+	bug_info = (struct ion_sec_buffer_info *)buffer->priv_virt;
+	if (!buffer->handle_count)
+		ION_PRINT_LOG_OR_SEQ(s, "0x%p %9d %16s %5d %5d %16s %4d\n",
+				     buffer, bug_info->pid,
+				     buffer->alloc_dbg, p->pid,
+				     p->tgid, p->comm, fd);
+
+	return 0;
+}
+
+static int ion_dump_all_share_fds(struct seq_file *s)
+{
+	struct task_struct *p;
+	int res;
+	struct dump_fd_data data;
+
+	/* function is not available, just return */
+	if (ion_drv_file_to_buffer(NULL) == ERR_PTR(-EPERM))
+		return 0;
+
+	ION_PRINT_LOG_OR_SEQ(s, "%18s %9s %16s %5s %5s %16s %4s\n",
+			     "buffer", "alloc_pid",
+			     "alloc_client", "pid",
+			     "tgid", "process",
+			     "fd");
+	data.s = s;
+
+	read_lock(&tasklist_lock);
+	for_each_process(p) {
+		task_lock(p);
+		data.p = p;
+		res = iterate_fd(p->files, 0, __do_dump_share_fd, &data);
+		if (res)
+			IONMSG("%s failed somehow\n", __func__);
+		task_unlock(p);
+	}
+	read_unlock(&tasklist_lock);
+	return 0;
+}
+
 static int ion_sec_heap_debug_show(struct ion_heap *heap, struct seq_file *s,
 				   void *unused)
 {
 	struct ion_device *dev = heap->dev;
 	struct rb_node *n;
 	int *secur_handle;
+	struct ion_sec_buffer_info *bug_info;
+	bool has_orphaned = false;
+	size_t fr_size = 0;
+	size_t sec_size = 0;
+	size_t prot_size = 0;
 	const char *seq_line = "---------------------------------------";
 
 	if (heap->flags & ION_HEAP_FLAG_DEFER_FREE)
-		ION_PRINT_LOG_OR_SEQ(s, "mm_heap_freelist total_size=%zu\n",
+		ION_PRINT_LOG_OR_SEQ(s, "sec_heap_freelist total_size=%zu\n",
 				     ion_heap_freelist_size(heap));
 	else
-		ION_PRINT_LOG_OR_SEQ(s, "mm_heap defer free disabled\n");
+		ION_PRINT_LOG_OR_SEQ(s, "sec_heap defer free disabled\n");
 
 	ION_PRINT_LOG_OR_SEQ(s, "%s\n", seq_line);
-	ION_PRINT_LOG_OR_SEQ(s, "%8.s %8.s %4.s %3.s %3.s %10.s %4.s %3.s %s\n",
-			     "buffer", "size", "kmap", "ref", "hdl",
-			     "sec handle", "flag", "pid", "comm(client)");
+	ION_PRINT_LOG_OR_SEQ(s,
+			     "%18.s %8.s %4.s %3.s %8.s %8.s %3.s %4.s %4.s %3.s %10.s %10.s\n",
+			     "buffer", "size",
+			     "kmap", "ref",
+			     "hdl-cnt", "sec_hdl",
+			     "flag", "port",
+			     "heap_id", "pid(alloc)",
+			     "comm(client)", "dbg_name");
 
+	mutex_lock(&dev->buffer_lock);
 	for (n = rb_first(&dev->buffers); n; n = rb_next(n)) {
 		struct ion_buffer
 		*buffer = rb_entry(n, struct ion_buffer, node);
 		if (buffer->heap->type != heap->type)
 			continue;
-		mutex_lock(&dev->buffer_lock);
 		secur_handle = (int *)buffer->priv_virt;
+		bug_info = (struct ion_sec_buffer_info *)buffer->priv_virt;
 
-		ION_PRINT_LOG_OR_SEQ(s,
-				     "0x%p %8zu %3d %3d %3d 0x%x %3lu %3d %s",
-				     buffer, buffer->size, buffer->kmap_cnt,
-				     atomic_read(&buffer->ref.refcount),
-				     buffer->handle_count, *secur_handle,
-				     buffer->flags, buffer->pid,
-				     buffer->task_comm);
-		ION_PRINT_LOG_OR_SEQ(s, ")\n");
+		if ((int)buffer->heap->type ==
+				(int)ION_HEAP_TYPE_MULTIMEDIA_SEC) {
+			ION_PRINT_LOG_OR_SEQ(s,
+					     "0x%p %8zu %3d %3d %3d 0x%10.x %3lu %3d %3d %3d %s %s",
+					     buffer, buffer->size,
+					     buffer->kmap_cnt,
+					     atomic_read(&buffer->ref.refcount),
+					     buffer->handle_count,
+					     *secur_handle,
+					     buffer->flags,
+					     bug_info->module_id,
+					     buffer->heap->id,
+					     buffer->pid,
+					     buffer->task_comm,
+					     bug_info->dbg_info.dbg_name);
+			ION_PRINT_LOG_OR_SEQ(s, ")\n");
 
-		mutex_unlock(&dev->buffer_lock);
+			if (buffer->heap->id == ION_HEAP_TYPE_MULTIMEDIA_SEC)
+				sec_size += buffer->size;
+			if (buffer->heap->id == ION_HEAP_TYPE_MULTIMEDIA_PROT)
+				prot_size += buffer->size;
+			if (buffer->heap->id == ION_HEAP_TYPE_MULTIMEDIA_2D_FR)
+				fr_size += buffer->size;
 
-		ION_PRINT_LOG_OR_SEQ(s, "%s\n", seq_line);
+			if (!buffer->handle_count)
+				has_orphaned = true;
+		}
 	}
+	if (has_orphaned) {
+		ION_PRINT_LOG_OR_SEQ(
+			s, "-----orphaned buffer list:------------------\n");
+		ion_dump_all_share_fds(s);
+	}
+	mutex_unlock(&dev->buffer_lock);
+	ION_PRINT_LOG_OR_SEQ(
+						s,
+						"----------------------------------------------------\n");
+
+	ION_PRINT_LOG_OR_SEQ(
+		s, "----------------------------------------------------\n");
+	ION_PRINT_LOG_OR_SEQ(s, "%16s %16zu\n", "sec-sz:", sec_size);
+	ION_PRINT_LOG_OR_SEQ(s, "%16s %16zu\n", "prot-sz:", prot_size);
+	ION_PRINT_LOG_OR_SEQ(s, "%16s %16zu\n", "2d-fr-sz:", fr_size);
+	ION_PRINT_LOG_OR_SEQ(
+						s,
+						"----------------------------------------------------\n");
 
 	down_read(&dev->lock);
 	for (n = rb_first(&dev->clients); n; n = rb_next(n)) {
@@ -595,11 +671,22 @@ static int ion_sec_heap_debug_show(struct ion_heap *heap, struct seq_file *s,
 			struct ion_handle *handle;
 
 			handle = rb_entry(m, struct ion_handle, node);
-			ION_PRINT_LOG_OR_SEQ(s,
-					     "\thandle=0x%p, buffer=0x%p",
-					     handle, handle->buffer);
-			ION_PRINT_LOG_OR_SEQ(s, ", heap=%d\n",
-					     handle->buffer->heap->id);
+			if (handle->buffer->heap->id ==
+					ION_HEAP_TYPE_MULTIMEDIA_SEC ||
+			    handle->buffer->heap->id ==
+					ION_HEAP_TYPE_MULTIMEDIA_PROT ||
+			    handle->buffer->heap->id ==
+					ION_HEAP_TYPE_MULTIMEDIA_2D_FR) {
+				ION_PRINT_LOG_OR_SEQ(s,
+						     "\thandle=0x%p, buffer=0x%p",
+						     handle, handle->buffer);
+				ION_PRINT_LOG_OR_SEQ(s, ", heap=%d",
+						     handle->buffer->heap->id);
+				ION_PRINT_LOG_OR_SEQ(
+					s, "fd=%4d, ts: %lldms\n",
+							handle->dbg.fd,
+							handle->dbg.user_ts);
+			}
 		}
 		mutex_unlock(&client->lock);
 	}
@@ -615,7 +702,7 @@ struct ion_heap *ion_sec_heap_create(struct ion_platform_heap *heap_data)
 
 	struct ion_sec_heap *heap;
 
-	IONMSG("%s enter ion_sec_heap_create\n", __func__);
+	IONMSG("%s enter:%s\n", __func__, heap_data->name);
 
 	heap = kzalloc(sizeof(*heap), GFP_KERNEL);
 	if (!heap) {

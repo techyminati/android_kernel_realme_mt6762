@@ -75,8 +75,8 @@ static void iddig_mode_switch(struct work_struct *work)
 
 	if (mtk_idpin_cur_stat == IDPIN_OUT) {
 		mtk_idpin_cur_stat = IDPIN_IN_HOST;
-		mt_vbus_on();
 		mt_usbhost_connect();
+		mt_vbus_on();
 		mtk_set_iddig_out_detect(info);
 	} else {
 		mtk_idpin_cur_stat = IDPIN_OUT;

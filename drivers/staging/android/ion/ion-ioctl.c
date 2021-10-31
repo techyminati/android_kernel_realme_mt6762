@@ -116,6 +116,9 @@ long ion_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		handle = ion_handle_get_by_id_nolock(client, data.handle.handle);
 		if (IS_ERR(handle)) {
 			mutex_unlock(&client->lock);
+			IONMSG("%s:ION_IOC_FREE invalid handle, %s(%s),%d\n",
+			       __func__, client->name,
+			       client->dbg_name, client->pid);
 			return PTR_ERR(handle);
 		}
 		ion_free_nolock(client, handle);

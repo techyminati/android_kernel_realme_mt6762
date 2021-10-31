@@ -66,6 +66,7 @@ struct mtk_iommu_data {
 	bool                            enable_4GB;
 	const struct mtk_iommu_match_data  *match_data;
 	struct list_head		list;
+	unsigned int m4uid;
 };
 
 static inline int compare_of(struct device *dev, void *data)

@@ -27,7 +27,10 @@
 #include <linux/pm_runtime.h>
 #include <linux/spi/spi.h>
 #include <linux/dma-mapping.h>
-
+#ifdef VENDOR_EDIT
+/* Fuchun.Liao@BSP.CHG.Basic 2018/09/20 add for master->cur_msg = NULL crash, workaround ALPS04114936 */
+#include <linux/kthread.h>
+#endif /* VENDOR_EDIT */
 
 #define SPI_CFG0_REG                      0x0000
 #define SPI_CFG1_REG                      0x0004
@@ -389,10 +392,19 @@ static void mtk_spi_set_cs(struct spi_device *spi, bool enable)
 }
 
 static void mtk_spi_prepare_transfer(struct spi_master *master,
-				     struct spi_transfer *xfer)
+struct spi_transfer *xfer, struct spi_device *spi)
 {
 	u32 spi_clk_hz, div, sck_time, cs_time, reg_val = 0;
 	struct mtk_spi *mdata = spi_master_get_devdata(master);
+
+	u32 cs_setuptime, cs_holdtime, cs_idletime, cs_lowtime, cs_hightime = 0;
+	struct mtk_chip_config *chip_config = spi->controller_data;
+
+	spi_debug("********************************\n");
+	spi_debug("cs_setuptime=%d\n", chip_config->cs_setuptime);
+	spi_debug("cs_holdtime=%d\n", chip_config->cs_holdtime);
+	spi_debug("cs_idletime=%d\n", chip_config->cs_idletime);
+	spi_debug("********************************\n");
 
 	spi_clk_hz = clk_get_rate(mdata->spi_clk);
 	if (xfer->speed_hz < spi_clk_hz / 2)
@@ -402,30 +414,55 @@ static void mtk_spi_prepare_transfer(struct spi_master *master,
 
 	sck_time = (div + 1) / 2;
 	cs_time = sck_time * 2;
+	spi_debug("sck_time = %d\n", sck_time);
+	spi_debug("cs_time = %d\n", cs_time);
 
+	cs_hightime = sck_time;
+	cs_lowtime = sck_time;
+
+	if (chip_config->cs_setuptime && chip_config->cs_holdtime
+		&& chip_config->cs_idletime){
+		spi_debug("Using Special Timing Value...\n");
+		cs_setuptime = chip_config->cs_setuptime;
+		cs_holdtime = chip_config->cs_holdtime;
+		cs_idletime = chip_config->cs_idletime;
+	} else {
+		spi_debug("Using spi_clk_hz/speed_hz to calculate Timing Value...\n");
+		cs_setuptime = cs_time;
+		cs_holdtime = cs_time;
+		cs_idletime = cs_time;
+	}
 	if (mdata->dev_comp->enhance_timing) {
-		reg_val |= (((sck_time - 1) & 0xffff)
+		reg_val |= (((cs_hightime - 1) & 0xffff)
 			   << SPI_CFG0_SCK_HIGH_OFFSET);
-		reg_val |= (((sck_time - 1) & 0xffff)
+		reg_val |= (((cs_lowtime - 1) & 0xffff)
 			   << SPI_ADJUST_CFG0_SCK_LOW_OFFSET);
 		writel(reg_val, mdata->base + SPI_CFG2_REG);
-		reg_val |= (((cs_time - 1) & 0xffff)
+
+		reg_val = 0;
+		reg_val |= (((cs_holdtime - 1) & 0xffff)
 			   << SPI_ADJUST_CFG0_CS_HOLD_OFFSET);
-		reg_val |= (((cs_time - 1) & 0xffff)
+		reg_val |= (((cs_setuptime - 1) & 0xffff)
 			   << SPI_ADJUST_CFG0_CS_SETUP_OFFSET);
 		writel(reg_val, mdata->base + SPI_CFG0_REG);
 	} else {
-		reg_val |= (((sck_time - 1) & 0xff)
+		reg_val |= (((cs_hightime - 1) & 0xff)
 			   << SPI_CFG0_SCK_HIGH_OFFSET);
-		reg_val |= (((sck_time - 1) & 0xff) << SPI_CFG0_SCK_LOW_OFFSET);
-		reg_val |= (((cs_time - 1) & 0xff) << SPI_CFG0_CS_HOLD_OFFSET);
-		reg_val |= (((cs_time - 1) & 0xff) << SPI_CFG0_CS_SETUP_OFFSET);
+		reg_val |= (((cs_lowtime - 1) & 0xff) <<
+			SPI_CFG0_SCK_LOW_OFFSET);
+		writel(reg_val, mdata->base + SPI_CFG2_REG);
+
+		reg_val = 0;
+		reg_val |= (((cs_holdtime - 1) & 0xff) <<
+			SPI_CFG0_CS_HOLD_OFFSET);
+		reg_val |= (((cs_setuptime - 1) & 0xff) <<
+			SPI_CFG0_CS_SETUP_OFFSET);
 		writel(reg_val, mdata->base + SPI_CFG0_REG);
 	}
 
 	reg_val = readl(mdata->base + SPI_CFG1_REG);
 	reg_val &= ~SPI_CFG1_CS_IDLE_MASK;
-	reg_val |= (((cs_time - 1) & 0xff) << SPI_CFG1_CS_IDLE_OFFSET);
+	reg_val |= (((cs_idletime - 1) & 0xff) << SPI_CFG1_CS_IDLE_OFFSET);
 	writel(reg_val, mdata->base + SPI_CFG1_REG);
 }
 
@@ -562,7 +599,7 @@ static int mtk_spi_fifo_transfer(struct spi_master *master,
 
 	mdata->cur_transfer = xfer;
 	mdata->xfer_len = xfer->len;
-	mtk_spi_prepare_transfer(master, xfer);
+	mtk_spi_prepare_transfer(master, xfer, spi);
 	mtk_spi_setup_packet(master);
 
 	cnt = xfer->len / 4;
@@ -597,7 +634,7 @@ static int mtk_spi_dma_transfer(struct spi_master *master,
 	mdata->rx_sgl_len = 0;
 	mdata->cur_transfer = xfer;
 
-	mtk_spi_prepare_transfer(master, xfer);
+	mtk_spi_prepare_transfer(master, xfer, spi);
 
 	cmd = readl(mdata->base + SPI_CMD_REG);
 	if (xfer->tx_buf)
@@ -675,6 +712,16 @@ static irqreturn_t mtk_spi_interrupt(int irq, void *dev_id)
 		mdata->state = MTK_SPI_PAUSED;
 	else
 		mdata->state = MTK_SPI_IDLE;
+
+#ifdef VENDOR_EDIT
+/* Fuchun.Liao@BSP.CHG.Basic 2018/09/20 add for master->cur_msg = NULL crash, workaround ALPS04114936 */
+	if (NULL == master->cur_msg) {
+		master->cur_msg_prepared = false;
+		kthread_queue_work(&master->kworker, &master->pump_messages);
+		spi_debug("mtk_spi_interrupt NULL == master->cur_msg  \n");
+		return IRQ_HANDLED;
+	}
+#endif /* VENDOR_EDIT */
 
 	if (!master->can_dma(master, master->cur_msg->spi, trans)) {
 		if (trans->rx_buf) {

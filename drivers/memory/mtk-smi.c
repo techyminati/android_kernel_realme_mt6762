@@ -127,7 +127,6 @@ int mtk_smi_dev_enable(struct mtk_smi_dev *smi)
 	if (ret)
 		for (j = i - 1; j >= 0; j--)
 			clk_disable_unprepare(smi->clks[j]);
-	/* add one for reference counts */
 	atomic_inc(&(smi->clk_ref_cnts));
 	return ret;
 }
@@ -146,11 +145,10 @@ int mtk_smi_dev_disable(struct mtk_smi_dev *smi)
 			smi->index);
 		return -ENXIO;
 	}
+	atomic_dec(&(smi->clk_ref_cnts));
 	/* disable clocks without mtcmos */
 	for (i = smi->nr_clks - 1; i >= 1; i--)
 		clk_disable_unprepare(smi->clks[i]);
-	/* sub one for reference counts */
-	atomic_dec(&(smi->clk_ref_cnts));
 	return 0;
 }
 EXPORT_SYMBOL_GPL(mtk_smi_dev_disable);
@@ -229,7 +227,7 @@ int mtk_smi_config_set(struct mtk_smi_dev *smi, const unsigned int scen_indx)
 			smi->index, scen_indx, smi->nr_scens);
 		return -EINVAL;
 	} else if (!mtk_smi_clk_ref_cnts_read(smi)) {
-		dev_info(smi->dev, "%s %d without mtcmos\n",
+		dev_dbg(smi->dev, "%s %d without mtcmos\n",
 			smi->index == common->index ? "common" : "larb",
 			smi->index);
 		return ret;

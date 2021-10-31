@@ -16,6 +16,7 @@ obj-$(CONFIG_PM_DEVFREQ_EVENT)		+= event/
 
 ifneq ($(CONFIG_MEDIATEK_SOLUTION),)
 ccflags-y += -I$(srctree)/drivers/misc/mediatek/base/power/include/
+ccflags-y += -I$(srctree)/drivers/misc/mediatek/base/power/qos/$(MTK_PLATFORM)/
 ccflags-y += -I$(srctree)/drivers/misc/mediatek/base/power/spm/$(MTK_PLATFORM)/
 ccflags-y += -I$(srctree)/drivers/misc/mediatek/dramc/$(MTK_PLATFORM)/
 ccflags-y += -I$(srctree)/drivers/misc/mediatek/include/
@@ -26,11 +27,12 @@ ccflags-y += -I$(srctree)/drivers/watchdog/mediatek/include/
 ccflags-y += -I$(srctree)/drivers/misc/mediatek/emi/$(MTK_PLATFORM)/
 ccflags-y += -I$(srctree)/drivers/misc/mediatek/emi/submodule/
 ccflags-y += -I$(srctree)/drivers/misc/mediatek/smi/
-ccflags-y += -I$(srctree)/drivers/misc/mediatek/base/power/$(CONFIG_MTK_PLATFORM)\
+ccflags-y += -I$(srctree)/drivers/misc/mediatek/base/power/$(CONFIG_MTK_PLATFORM)/
+ccflags-y += -I$(srctree)/drivers/misc/mediatek/mmp/
 
 ifneq ($(CONFIG_MACH_MT6779),)
-#obj-y					+= helio-dvfsrc-opp.o helio-dvfsrc-sysfs.o helio-dvfsrc-ipi.o
-#obj-$(CONFIG_MACH_MT6779)		+= helio-dvfsrc_v2.o helio-dvfsrc-mt6779.o helio-dvfsrc-opp-mt6779.o
+obj-y					+= helio-dvfsrc-opp.o helio-dvfsrc-sysfs.o
+obj-$(CONFIG_MACH_MT6779)		+= helio-dvfsrc_v2.o helio-dvfsrc-mt6779.o helio-dvfsrc-opp-mt6779.o
 else
 obj-y					+= helio-dvfsrc-opp.o helio-dvfsrc-sysfs.o helio-dvfsrc-ipi.o
 obj-$(CONFIG_MACH_MT6765)		+= helio-dvfsrc.o helio-dvfsrc-mt6765.o helio-dvfsrc-opp-mt6765.o

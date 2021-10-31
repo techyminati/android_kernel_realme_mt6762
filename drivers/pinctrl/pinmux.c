@@ -514,11 +514,22 @@ void pinmux_disable_setting(struct pinctrl_setting const *setting)
 
 			gname = pctlops->get_group_name(pctldev,
 						setting->data.mux.group);
+#ifndef VENDOR_EDIT
+/* Yichun.Chen  PSW.BSP.CHG  2018-12-24  checklist for printk rate*/
 			dev_warn(pctldev->dev,
 				 "not freeing pin %d (%s) as part of "
 				 "deactivating group %s - it is already "
 				 "used for some other setting",
 				 pins[i], desc->name, gname);
+#else
+			if (printk_ratelimit()) {
+				dev_warn(pctldev->dev,
+					 "not freeing pin %d (%s) as part of "
+					 "deactivating group %s - it is already "
+					 "used for some other setting",
+					 pins[i], desc->name, gname);
+			}
+#endif
 		}
 	}
 }

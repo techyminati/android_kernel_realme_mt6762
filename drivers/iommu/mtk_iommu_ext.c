@@ -11,10 +11,10 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
-
-#include "mach/pseudo_m4u.h"
 #include "mtk_iommu_ext.h"
 #include "mach/mt_iommu_plat.h"
+#include "mach/pseudo_m4u.h"
+
 #include <linux/debugfs.h>
 #include <linux/uaccess.h>
 #include <linux/string.h>
@@ -115,10 +115,17 @@ bool report_custom_iommu_fault(
 	unsigned int	int_state,
 	unsigned int	fault_iova,
 	unsigned int	fault_pa,
-	unsigned int	fault_id) {
-
-	int idx = mtk_iommu_get_tf_larb_port_idx(fault_id);
+	unsigned int	fault_id, bool is_vpu) {
+	int idx;
 	int port;
+
+	if (is_vpu) {
+		mmu_aee_print(mmu_translation_log_format, "VPU",
+			      "VPU", fault_iova, fault_pa);
+		return true;
+	}
+
+	idx = mtk_iommu_get_tf_larb_port_idx(fault_id);
 
 	iommu_globals.enable = 0;
 
@@ -476,3 +483,15 @@ void mtk_iommu_trace_log(int event,
 
 	mtk_iommu_trace_rec_write(event, data1, data2, data3);
 }
+
+int m4u_user2kernel_port(int userport)
+{
+	unsigned int larb_id;
+	unsigned int port;
+
+	larb_id = iommu_port[userport].larb_id;
+	port = iommu_port[userport].larb_port;
+	pr_info("transfer larb_id=%d, porr=%d(%d)\n", larb_id, port, userport);
+	return MTK_M4U_ID(larb_id, port);
+}
+
