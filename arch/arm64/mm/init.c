@@ -93,7 +93,8 @@ static phys_addr_t __init max_zone_dma_phys(void)
 		return min(offset + zmc_max_zone_dma_phys,
 				memblock_end_of_DRAM());
 #endif
-	return min(offset + (1ULL << 32), memblock_end_of_DRAM());
+	return min(offset + (1ULL << CONFIG_ARCH_DMA_BITS),
+			memblock_end_of_DRAM());
 }
 
 #ifdef CONFIG_NUMA

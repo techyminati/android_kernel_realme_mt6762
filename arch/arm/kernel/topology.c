@@ -347,6 +347,29 @@ const struct sched_group_energy * const cpu_core_energy(int cpu)
 #endif
 }
 
+#ifdef CONFIG_MTK_UNIFY_POWER
+struct sched_group_energy cci_tbl;
+inline
+const struct sched_group_energy * const cci_energy(void)
+{
+	struct sched_group_energy *sge = &cci_tbl;
+	struct upower_tbl_info **addr_ptr_tbl_info;
+	struct upower_tbl_info *ptr_tbl_info;
+	struct upower_tbl *ptr_tbl;
+
+	addr_ptr_tbl_info = upower_get_tbl();
+	ptr_tbl_info = *addr_ptr_tbl_info;
+
+	ptr_tbl = ptr_tbl_info[UPOWER_BANK_CCI].p_upower_tbl;
+
+	sge->nr_cap_states = ptr_tbl->row_num;
+	sge->cap_states = ptr_tbl->row;
+	sge->lkg_idx = ptr_tbl->lkg_idx;
+
+	return sge;
+}
+#endif
+
 static inline int cpu_corepower_flags(void)
 {
 	return SD_SHARE_PKG_RESOURCES  | SD_SHARE_POWERDOMAIN | \
