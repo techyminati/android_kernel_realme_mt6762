@@ -54,6 +54,16 @@ static unsigned long sec_low(unsigned long long nsec)
 }
 #endif
 
+bool is_critical_lock(raw_spinlock_t *lock)
+{
+#ifdef CONFIG_DEBUG_LOCK_ALLOC
+	/* The lock is used by __kmalloc and aee_kernel_warning_api */
+	if (!strcmp(lock->dep_map.name, "&(&n->list_lock)->rlock"))
+		return true;
+#endif
+	return false;
+}
+
 void __raw_spin_lock_init(raw_spinlock_t *lock, const char *name,
 			  struct lock_class_key *key)
 {
@@ -189,7 +199,6 @@ static void __spin_lock_debug(raw_spinlock_t *lock)
 	u64 i;
 	u64 loops = loops_per_jiffy * LOOP_HZ;
 	int print_once = 1;
-	char aee_str[50];
 	unsigned long long t1, t2, t3;
 	struct task_struct *owner = NULL;
 
@@ -253,16 +262,17 @@ static void __spin_lock_debug(raw_spinlock_t *lock)
 			pr_info("========== The call trace of spinning task ==========\n");
 			dump_stack();
 
-			/* ensure debug_locks is true,then can call aee */
-				// debug_show_all_locks();
+#ifdef CONFIG_MTK_AEE_FEATURE
+			if (!is_critical_lock(lock)) {
+				char aee_str[50];
 				snprintf(aee_str, 50,
 					"Spinlock lockup: (%s) in %s\n",
 					lock->name, current->comm);
-				#if defined(CONFIG_MTK_AEE_FEATURE)
 				aee_kernel_warning_api(__FILE__, __LINE__,
 					DB_OPT_DUMMY_DUMP | DB_OPT_FTRACE,
 					aee_str, "spinlock debugger\n");
-				#endif
+			}
+#endif
 		}
 	}
 #else /* MTK_LOCK_DEBUG */

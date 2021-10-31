@@ -621,8 +621,9 @@ unsigned int irq_create_fwspec_mapping(struct irq_fwspec *fwspec)
 			return virq;
 		}
 
-		pr_warn("type mismatch, failed to map hwirq-%lu for %s!\n",
-			hwirq, of_node_full_name(to_of_node(fwspec->fwnode)));
+		pr_warn("type mismatch (%u/%u), failed to map hwirq-%lu for %s!\n",
+                    type, irq_get_trigger_type(virq),
+                    hwirq, of_node_full_name(to_of_node(fwspec->fwnode)));
 		return 0;
 	}
 

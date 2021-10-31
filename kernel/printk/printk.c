@@ -72,6 +72,12 @@ int printk_disable_uart;
 
 module_param_named(disable_uart, printk_disable_uart, int, 0644);
 
+#ifdef VENDOR_EDIT
+/*xing.xiong@BSP.Kernel.Debug, 2018/11/22, Add for forcing to enable uart */
+int printk_force_uart = 0;
+module_param_named(force_uart, printk_force_uart, int, S_IRUGO | S_IWUSR);
+#endif
+
 bool mt_get_uartlog_status(void)
 {
 	if (printk_disable_uart == 1)
@@ -92,6 +98,15 @@ void set_uartlog_status(bool value)
 #ifdef CONFIG_MTK_PRINTK_UART_CONSOLE
 void mt_disable_uart(void)
 {
+
+#ifdef VENDOR_EDIT
+	/*xing.xiong@BSP.Kernel.Debug, 2018/11/22, Add for forcing to enable uart */
+		if (printk_force_uart) {
+			printk_disable_uart = 0;
+			return;
+		}
+#endif
+
 	/* uart print not always enable */
 	if ((mt_need_uart_console != 1) && (printk_disable_uart != 2))
 		printk_disable_uart = 1;
