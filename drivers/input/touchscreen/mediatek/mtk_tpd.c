@@ -43,6 +43,17 @@
 #define COMPAT_TPD_GET_FILTER_PARA _IOWR(TOUCH_IOC_MAGIC, \
 						2, struct tpd_filter_t)
 #endif
+#ifdef ODM_HQ_EDIT
+/*zhangyin@ODM_HQ.BSP.TP.Function, 2018/12/12 add for oppo devinfo*
+ *zhangyin@ODM_HQ.BSP.TP.Function, 2019/01/30 add for oppo headset state*/
+struct tp_devinfo oppo_tp_data = {
+	.tp_dev_name = "unknown",
+	.manufacture = "unknown",
+	.fw_name = "unknown",
+	.version = 0,
+};
+u32 g_oppo_headset_state_flag = 0;
+#endif/*ODM_HQ_EDIT*/
 struct tpd_filter_t tpd_filter;
 struct tpd_dts_info tpd_dts_data;
 struct pinctrl *pinctrl1;
@@ -527,8 +538,10 @@ static void tpd_create_attributes(struct device *dev, struct tpd_attrs *attrs)
 {
 	int num = attrs->num;
 
-	for (; num > 0;)
-		device_create_file(dev, attrs->attr[--num]);
+	for (; num > 0;) {
+		if (device_create_file(dev, attrs->attr[--num]))
+			pr_info("mtk_tpd: tpd create attributes file failed\n");
+	}
 }
 
 /* touch panel probe */
@@ -642,6 +655,10 @@ static int tpd_probe(struct platform_device *pdev)
 				TPD_DMESG("tpd_probe, tpd_driver_name=%s\n",
 					  tpd_driver_list[i].tpd_device_name);
 				g_tpd_drv = &tpd_driver_list[i];
+				#ifdef ODM_HQ_EDIT
+				/*zhangyin@ODM_HQ.BSP.TP.Function, 2018/12/07 add for oppo devinfo*/
+				oppo_tp_data.tp_dev_name = tpd_driver_list[i].tpd_device_name;
+				#endif/*ODM_HQ_EDIT*/
 				break;
 			}
 		}

@@ -65,6 +65,7 @@
 #define TPD_MODE_RAW_DATA 5
 #undef TPD_RES_X
 #undef TPD_RES_Y
+
 extern unsigned long TPD_RES_X;
 extern unsigned long TPD_RES_Y;
 extern int tpd_load_status;	/* 0: failed, 1: success */
@@ -143,7 +144,16 @@ struct tpd_driver_t {
 	int tpd_have_button;
 	struct tpd_attrs attrs;
 };
-
+#ifdef ODM_HQ_EDIT
+/*zhangyin@ODM_HQ.BSP.TP.Function, 2018/12/12 add for oppo devinfo*/
+struct tp_devinfo {
+	char *tp_dev_name;
+	char *manufacture;
+	char *fw_name;
+        u8 version;
+};
+extern struct tp_devinfo oppo_tp_data;
+#endif /*ODM_HQ_EDIT*/
 
 #if 1				/* #ifdef TPD_HAVE_BUTTON */
 void tpd_button(unsigned int x, unsigned int y, unsigned int down);
