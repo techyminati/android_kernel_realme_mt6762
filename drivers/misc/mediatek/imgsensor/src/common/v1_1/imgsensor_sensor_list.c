@@ -23,8 +23,20 @@
  *    mediatek\custom\common\hal\imgsensor\src\sensorlist.cpp
  */
 struct IMGSENSOR_SENSOR_LIST
-	gimgsensor_sensor_list[MAX_NUM_OF_SUPPORT_SENSOR] = {
-	/*IMX*/
+gimgsensor_sensor_list[MAX_NUM_OF_SUPPORT_SENSOR] = {
+/*IMX*/
+#ifdef VENDOR_EDIT
+/*Henry.Chang@Camera.Driver 20181107 add for P80_18151 imgsensor driver*/
+#if defined(IMX586_MIPI_RAW)
+{IMX586_SENSOR_ID, SENSOR_DRVNAME_IMX586_MIPI_RAW, IMX586_MIPI_RAW_SensorInit},
+#endif
+#if defined(S5K3P9SP_MIPI_RAW)
+{S5K3P9SP_SENSOR_ID, SENSOR_DRVNAME_S5K3P9SP_MIPI_RAW, S5K3P9SP_MIPI_RAW_SensorInit},
+#endif
+#if defined(GC5035_MIPI_RAW)
+{GC5035_SENSOR_ID, SENSOR_DRVNAME_GC5035_MIPI_RAW, GC5035_MIPI_RAW_SensorInit},
+#endif
+#endif
 #if defined(IMX519_MIPI_RAW)
 {IMX519_SENSOR_ID, SENSOR_DRVNAME_IMX519_MIPI_RAW, IMX519_MIPI_RAW_SensorInit},
 #endif

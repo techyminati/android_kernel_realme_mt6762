@@ -2553,11 +2553,11 @@ static int kbase_jd_umm_map(struct kbase_context *kctx,
 
 		WARN_ONCE(sg_dma_address(s) & (PAGE_SIZE-1),
 		"sg_dma_address(s)=%llx is not aligned to PAGE_SIZE\n",
-		(unsigned long long) sg_dma_address(s));
+		(unsigned long long) sg_phys(s));
 
 		for (j = 0; (j < pages) && (count < reg->nr_pages); j++,
 				count++)
-			*pa++ = as_tagged(sg_dma_address(s) +
+			*pa++ = as_tagged(sg_phys(s) +
 				(j << PAGE_SHIFT));
 		WARN_ONCE(j < pages,
 			  "sg list from dma_buf_map_attachment > dma_buf->size=%zu\n",

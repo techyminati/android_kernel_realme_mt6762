@@ -23,6 +23,7 @@
 struct plt_cfg_bus_latch *lastbus_ctrl;
 static int lastbus_probe(struct platform_device *pdev);
 
+/* #define LASTBUS_SYS */
 
 #define NUM_INFRA_EVENT_REG (lastbus_ctrl->num_infra_event_reg)
 #define NUM_PERI_EVENT_REG (lastbus_ctrl->num_peri_event_reg)
@@ -49,6 +50,7 @@ static struct platform_driver lastbus_drv = {
 	.probe = lastbus_probe,
 };
 
+#ifdef LASTBUS_SYS
 static ssize_t lastbus_dump_show(struct device_driver *driver, char *buf)
 {
 	unsigned int wp = 0;
@@ -159,12 +161,13 @@ static ssize_t peri_event_show(struct device_driver *driver, char *buf)
 
 
 DRIVER_ATTR(peri_event, 0644, peri_event_show, peri_event_store);
-
-
+#endif
 
 static int lastbus_probe(struct platform_device *pdev)
 {
+#ifdef LASTBUS_SYS
 	int ret = 0;
+#endif
 
 	pr_debug("%s:%d: enter\n", __func__, __LINE__);
 	if (lastbus_ctrl->init)
@@ -182,14 +185,10 @@ static int lastbus_probe(struct platform_device *pdev)
 			return -ENOMEM;
 		}
 
-		lastbus_ctrl->spm_flag_base = of_iomap(pdev->dev.of_node, 2);
-		if (!lastbus_ctrl->peri_base) {
-			pr_info("can't of_iomap for peri lastbus!!\n");
-			return -ENOMEM;
-		}
 	}
 
 
+#ifdef LASTBUS_SYS
 	ret  = driver_create_file(&lastbus_drv.driver,
 			&driver_attr_lastbus_dump);
 	ret  |= driver_create_file(&lastbus_drv.driver,
@@ -201,6 +200,7 @@ static int lastbus_probe(struct platform_device *pdev)
 
 	if (ret)
 		pr_info("last bus create file failed\n");
+#endif
 
 	return 0;
 }

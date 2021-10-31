@@ -19,7 +19,7 @@
 #include <linux/proc_fs.h>
 #include <linux/of_reserved_mem.h>
 
-#define MAX_RESERVED_REGIONS	40
+#define MAX_RESERVED_REGIONS	64
 #define RESERVED_NOMAP 1
 #define RESERVED_MAP 0
 

@@ -1027,7 +1027,9 @@ void load_lcm_resources_from_DT(struct LCM_DRIVER *lcm_drv)
 		pr_info("LCM set_params not implemented!!!\n");
 }
 #endif
-
+#ifdef ODM_HQ_EDIT
+char *hq_lcm_name=0;
+#endif
 struct disp_lcm_handle *disp_lcm_probe(char *plcm_name,
 	enum LCM_INTERFACE_ID lcm_id, int is_lcm_inited)
 {
@@ -1044,8 +1046,11 @@ struct disp_lcm_handle *disp_lcm_probe(char *plcm_name,
 	struct disp_lcm_handle *plcm = NULL;
 
 	DISPFUNC();
-	DISPCHECK("plcm_name=%s is_lcm_inited %d\n", plcm_name, is_lcm_inited);
-
+#ifdef ODM_HQ_EDIT
+/* Wangxianfei@ODM.Multimedia.LCD  2018/12/10 add for lcd devinfo */
+	hq_lcm_name=plcm_name;
+	DISPERR("plcm_name=%s is_lcm_inited %d\n", plcm_name, is_lcm_inited);
+#endif
 #if defined(MTK_LCM_DEVICE_TREE_SUPPORT)
 	if (check_lcm_node_from_DT() == 0) {
 		lcm_drv = &lcm_common_drv;
@@ -1070,6 +1075,9 @@ struct disp_lcm_handle *disp_lcm_probe(char *plcm_name,
 		lcmindex = 0;
 	} else
 #endif
+#ifdef ODM_HQ_EDIT
+	DISPERR("_lcm_count=%d\n",_lcm_count());
+#endif
 	if (_lcm_count() == 0) {
 		DISPERR("no lcm driver defined in linux kernel driver\n");
 		return NULL;
@@ -1079,7 +1087,11 @@ struct disp_lcm_handle *disp_lcm_probe(char *plcm_name,
 
 			isLCMFound = true;
 			isLCMInited = false;
+			#ifdef ODM_HQ_EDIT
+			DISPERR("LCM Name NULL\n");
+			#else
 			DISPCHECK("LCM Name NULL\n");
+			#endif
 		} else {
 			lcm_drv = lcm_driver_list[0];
 			if (strcmp(lcm_drv->name, plcm_name)) {
@@ -1108,6 +1120,9 @@ struct disp_lcm_handle *disp_lcm_probe(char *plcm_name,
 
 			for (i = 0; i < _lcm_count(); i++) {
 				lcm_drv = lcm_driver_list[i];
+				#ifdef ODM_HQ_EDIT
+				DISPERR("lcm_drv->name=%s,plcm_name=%s\n",lcm_drv->name,plcm_name);
+				#endif
 				if (!strcmp(lcm_drv->name, plcm_name)) {
 					isLCMFound = true;
 					isLCMInited = true;
@@ -1503,12 +1518,63 @@ int disp_lcm_adjust_fps(void *cmdq, struct disp_lcm_handle *plcm, int fps)
 	DISPERR("lcm not initialied\n");
 	return -1;
 }
+#ifdef ODM_HQ_EDIT
+extern unsigned int esd_recovery_backlight_level;
+/* wangxianfei@ODM.HQ.Multimedia.LCM 2018/12/21 modified for backlight remapping*/
+static int backlight_remapping_into_tddic_reg(struct disp_lcm_handle *plcm, int level_brightness){
+	int level_temp, value_a, value_b;
+	int level;
+	struct LCM_PARAMS *lcm_params = NULL;
+	lcm_params = plcm->params;
+	level = level_brightness;
+	if ( level > 0) {
+		//pr_debug(" %s  level %d \n", __func__, level);
+		if (level >= lcm_params->brightness_max) {
+			level = lcm_params->brightness_max;
+		} else if (lcm_params->blmap) {
+			if (level%32 > 0)
+				level_temp = level/32 + 1;
+			else
+				level_temp = level/32;
 
+			level_temp = level_temp - 1;
+			if((level_temp*2 + 1) > lcm_params->blmap_size){
+				DISPERR(" %s android brightness level is more than 2047 or LCM blmap_size is setting short than 128 = %d\n", __func__, lcm_params->blmap_size);
+				return 0;
+			}
+			value_a = lcm_params->blmap[level_temp*2];
+			value_b = lcm_params->blmap[level_temp*2 + 1];
+			if (level <= 383)
+				level = value_a*level/100 + value_b;
+			else
+				level = value_a*level/100 - value_b;
+			//pr_debug(" %s value_a %d   value_b %d level_temp %d level %d\n", __func__, value_a, value_b, level_temp, level);
+			if (level < 0){
+				DISPERR(" %s backlight value had been converted into a minus type = %d\n", __func__, level);
+				return 0;
+			}
+		}
+		if (level < lcm_params->brightness_min)
+			level = lcm_params->brightness_min;
+		if (level > lcm_params->brightness_max)
+			level = lcm_params->brightness_max;
+		return level;
+	} else if (level == 0){
+		return 0;
+	} else {
+		DISPERR(" %s android brightness level is error = %d\n", __func__, level);
+		return 0;
+	}
+}
+#endif
 int disp_lcm_set_backlight(struct disp_lcm_handle *plcm,
 	void *handle, int level)
 {
+#ifdef ODM_HQ_EDIT
+/* wangxianfei@ODM.HQ.Multimedia.LCM 2018/12/21 modified for backlight remapping*/
+	int level_temp;
+#endif
 	struct LCM_DRIVER *lcm_drv = NULL;
-
 	DISPFUNC();
 	if (!_is_lcm_inited(plcm)) {
 		DISPERR("lcm_drv is null\n");
@@ -1517,7 +1583,15 @@ int disp_lcm_set_backlight(struct disp_lcm_handle *plcm,
 
 	lcm_drv = plcm->drv;
 	if (lcm_drv->set_backlight_cmdq) {
+#ifdef ODM_HQ_EDIT
+	esd_recovery_backlight_level=level;
+/* wangxianfei@ODM.HQ.Multimedia.LCM 2018/12/21 modified for backlight remapping*/
+		level_temp = backlight_remapping_into_tddic_reg(plcm, level);
+		DISPERR("level_temp,level = %d %d\n",level_temp,level);
+		lcm_drv->set_backlight_cmdq(handle, level_temp);
+#else
 		lcm_drv->set_backlight_cmdq(handle, level);
+#endif
 	} else {
 		DISPERR("FATAL ERROR, lcm_drv->set_backlight is null\n");
 		return -1;
@@ -1653,6 +1727,29 @@ int disp_lcm_set_lcm_cmd(struct disp_lcm_handle *plcm, void *cmdq_handle,
 	DISPERR("lcm_drv is null\n");
 	return -1;
 }
+#ifdef VENDOR_EDIT
+/* Yongpeng.Yi@PSW.MultiMedia.Display.LCD.Machine, 2018/09/10, Add for Porting cabc interface */
+int disp_lcm_oppo_set_lcm_cabc_cmd(struct disp_lcm_handle *plcm, void *handle, unsigned int level)
+{
+	struct LCM_DRIVER *lcm_drv = NULL;
+
+	DISPFUNC();
+	if (_is_lcm_inited(plcm)) {
+		lcm_drv = plcm->drv;
+		if (lcm_drv->set_cabc_mode_cmdq) {
+			lcm_drv->set_cabc_mode_cmdq(handle, level);
+		} else {
+			DISPERR("FATAL ERROR, lcm_drv->oppo_set_cabc_mode_cmdq is null\n");
+			return -1;
+		}
+
+		return 0;
+	}
+
+	DISPERR("lcm_drv is null\n");
+	return -1;
+}
+#endif /* VENDOR_EDIT */
 
 int disp_lcm_is_partial_support(struct disp_lcm_handle *plcm)
 {

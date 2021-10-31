@@ -53,26 +53,12 @@
 
 
 #ifdef M4U_TEE_SERVICE_ENABLE
-#include "tz_m4u.h"
 
-#if defined(CONFIG_TRUSTONIC_TEE_SUPPORT)
 #include "mobicore_driver_api.h"
-#endif
-
-#if defined(CONFIG_MTK_TEE_GP_SUPPORT)
-#include "tee_client_api.h"
-#endif
-
+#include "tz_m4u.h"
 #ifdef __M4U_SECURE_SYSTRACE_ENABLE__
 #include <linux/sectrace.h>
 #endif
-
-
-#if defined(CONFIG_MICROTRUST_TEE_SUPPORT)
-#include "isee_kernel_api.h"
-#define DRM_M4U_DRV_DRIVER_ID   (0x977aa)
-#endif
-
 int m4u_tee_en;
 
 #endif
@@ -880,7 +866,7 @@ int m4u_alloc_mva_sg(struct port_mva_info_t *port_info,
 	else
 		port_info->va = 0;
 	ret =
-	    m4u_alloc_mva(ion_m4u_client, port_info->eModuleID, port_info->va,
+	    m4u_alloc_mva(ion_m4u_client, port_info->module_id, port_info->va,
 			  sg_table, port_info->BufSize, prot, flags,
 			  &port_info->mva);
 	return ret;
@@ -1598,8 +1584,103 @@ static int MTK_M4U_flush(struct file *filp, fl_owner_t a_id)
 }
 
 #ifdef M4U_TEE_SERVICE_ENABLE
-#include "m4u_sec_gp.h"
-static DEFINE_MUTEX(gM4u_sec_init);
+
+#define TPLAY_DEV_NAME		"tz_m4u"
+
+#define M4U_DRV_UUID {{0x90, 0x73, 0xF0, 0x3A, 0x96, 0x18, 0x38, 0x3B, 0xB1, \
+	0x85, 0x6E, 0xB3, 0xF9, 0x90, 0xBA, 0xBD} }
+static const struct mc_uuid_t m4u_drv_uuid = M4U_DRV_UUID;
+static struct mc_session_handle m4u_dci_session;
+static struct m4u_msg *m4u_dci_msg;
+static DEFINE_MUTEX(m4u_dci_mutex);
+
+#define M4U_TL_UUID {{0x98, 0xfb, 0x95, 0xbc, 0xb4, 0xbf, 0x42, 0xd2, 0x64, \
+	0x73, 0xea, 0xe4, 0x86, 0x90, 0xd7, 0xea} }
+static const struct mc_uuid_t m4u_tl_uuid = M4U_TL_UUID;
+static struct mc_session_handle m4u_tci_session;
+static struct m4u_msg *m4u_tci_msg;
+static DEFINE_MUTEX(m4u_tci_mutex);
+
+static int m4u_open_trustlet(uint32_t deviceId)
+{
+
+	enum mc_result mcRet;
+
+	/* Initialize session handle data */
+	memset(&m4u_tci_session, 0, sizeof(m4u_tci_session));
+
+	mcRet =
+	    mc_malloc_wsm(deviceId, 0, sizeof(struct m4u_msg),
+			  (uint8_t **) &m4u_tci_msg, 0);
+	if (mcRet != MC_DRV_OK) {
+		M4UMSG("tz_m4u: mc_malloc_wsm tci fail: %d\n", mcRet);
+		return -1;
+	}
+
+	/* Open session the trustlet */
+	m4u_tci_session.device_id = deviceId;
+	mcRet = mc_open_session(&m4u_tci_session,
+				&m4u_tl_uuid,
+				(uint8_t *) m4u_tci_msg,
+				(uint32_t) sizeof(struct m4u_msg));
+	if (mcRet != MC_DRV_OK) {
+		M4UMSG("tz_m4u: mc_open_session returned: %d\n", mcRet);
+		return -1;
+	}
+
+	M4UMSG("tz_m4u: open TCI session success\n");
+
+	return 0;
+}
+
+int m4u_close_trustlet(uint32_t deviceId)
+{
+	enum mc_result mcRet;
+
+	mcRet = mc_free_wsm(deviceId, (uint8_t *) m4u_tci_msg);
+	if (mcRet) {
+		M4UMSG("tz_m4u: free tci struct fail: %d\n", mcRet);
+		return -1;
+	}
+
+	/* Close session */
+	mcRet = mc_close_session(&m4u_tci_session);
+	if (mcRet != MC_DRV_OK) {
+		M4UMSG("tz_m4u: mc_close_session returned: %d\n", mcRet);
+		return -1;
+	}
+
+	return 0;
+}
+
+static int m4u_exec_cmd(struct mc_session_handle *m4u_session,
+			struct m4u_msg *m4u_msg)
+{
+	enum mc_result ret;
+
+	if (m4u_msg == NULL) {
+		M4UMSG("%s TCI/DCI error\n", __func__);
+		return -1;
+	}
+
+	M4UMSG("Notify %x\n", m4u_msg->cmd);
+	ret = mc_notify(m4u_session);
+	if (ret != MC_DRV_OK) {
+		m4u_aee_print("tz_m4u Notify failed: %d\n", ret);
+		goto exit;
+	}
+
+	ret = mc_wait_notification(m4u_session, MC_INFINITE_TIMEOUT);
+	if (ret != MC_DRV_OK) {
+		m4u_aee_print("Wait for response notification failed: 0x%x\n",
+			      ret);
+		goto exit;
+	}
+
+	M4UMSG("get_resp %x\n", m4u_msg->cmd);
+exit:
+	return ret;
+}
 
 static int __m4u_sec_init(void)
 {
@@ -1607,40 +1688,33 @@ static int __m4u_sec_init(void)
 	void *pgd_va;
 	unsigned long pt_pa_nonsec;
 	unsigned int size;
-	struct m4u_sec_context *ctx;
-#ifdef CONFIG_MACH_MT6771
-	unsigned int i;
-#endif
-	ctx = m4u_sec_ctx_get(CMD_M4UTL_INIT);
-	if (!ctx)
-		return -EFAULT;
 
-	m4u_get_pgd(NULL, 0, &pgd_va, (void *)&pt_pa_nonsec, &size);
-#ifdef CONFIG_MACH_MT6771
-	for (i = 0; i < SMI_LARB_NR; i++)
-		larb_clock_on(i, 1);
-#endif
-	ctx->m4u_msg->cmd = CMD_M4UTL_INIT;
-	ctx->m4u_msg->init_param.nonsec_pt_pa = pt_pa_nonsec;
-	ctx->m4u_msg->init_param.l2_en = gM4U_L2_enable;
-	/* m4u_alloc_sec_pt_for_debug(); */
-	ctx->m4u_msg->init_param.sec_pt_pa = 0;
-
-	M4ULOG_HIGH(
-		"%s call m4u_exec_cmd CMD_M4UTL_INIT, nonsec_pt_pa: 0x%lx\n",
-		__func__, pt_pa_nonsec);
-	ret = m4u_exec_cmd(ctx);
-	if (ret < 0) {
-		M4UERR("m4u exec command fail\n");
+	mutex_lock(&m4u_tci_mutex);
+	if (m4u_tci_msg == NULL) {
+		M4UMSG("%s TCI/DCI error\n", __func__);
+		ret = MC_DRV_ERR_NO_FREE_MEMORY;
 		goto out;
 	}
-#ifdef CONFIG_MACH_MT6771
-	for (i = 0; i < SMI_LARB_NR; i++)
-		larb_clock_off(i, 1);
-#endif
-	ret = ctx->m4u_msg->rsp;
+
+	m4u_get_pgd(NULL, 0, &pgd_va, (void *)&pt_pa_nonsec, &size);
+
+	m4u_tci_msg->cmd = CMD_M4UTL_INIT;
+	m4u_tci_msg->init_param.nonsec_pt_pa = pt_pa_nonsec;
+	m4u_tci_msg->init_param.l2_en = gM4U_L2_enable;
+	/* m4u_alloc_sec_pt_for_debug(); */
+	m4u_tci_msg->init_param.sec_pt_pa = 0;
+	M4UMSG("%s call m4u_exec_cmd CMD_M4UTL_INIT, nonsec_pt_pa: 0x%lx\n",
+	       __func__, pt_pa_nonsec);
+	ret = m4u_exec_cmd(&m4u_tci_session, m4u_tci_msg);
+	if (ret) {
+		M4UMSG("m4u exec command fail\n");
+		ret = -1;
+		goto out;
+	}
+
+	ret = m4u_tci_msg->rsp;
 out:
-	m4u_sec_ctx_put(ctx);
+	mutex_unlock(&m4u_tci_mutex);
 	return ret;
 }
 
@@ -1657,16 +1731,13 @@ static int dr_map(unsigned long pa, size_t size)
 		goto out;
 	}
 
-	memset(m4u_dci_msg, 0, sizeof(struct m4u_msg));
+	memset(m4u_dci_msg, 0, sizeof(m4u_msg_t));
 
 	m4u_dci_msg->cmd = CMD_M4U_SYSTRACE_MAP;
 	m4u_dci_msg->systrace_param.pa = pa;
 	m4u_dci_msg->systrace_param.size = size;
-#if defined(CONFIG_MTK_TEE_GP_SUPPORT)
-		ret = m4u_exec_tci(&m4u_tci_session, m4u_tci_msg);
-#else
+
 	ret = m4u_exec_cmd(&m4u_dci_session, m4u_dci_msg);
-#endif
 	if (ret) {
 		M4UMSG("m4u exec command fail\n");
 		ret = -1;
@@ -1690,16 +1761,13 @@ static int dr_unmap(unsigned long pa, size_t size)
 		goto out;
 	}
 
-	memset(m4u_dci_msg, 0, sizeof(struct m4u_msg));
+	memset(m4u_dci_msg, 0, sizeof(m4u_msg_t));
 
 	m4u_dci_msg->cmd = CMD_M4U_SYSTRACE_UNMAP;
 	m4u_dci_msg->systrace_param.pa = pa;
 	m4u_dci_msg->systrace_param.size = size;
-#if defined(CONFIG_MTK_TEE_GP_SUPPORT)
-		ret = m4u_exec_tci(&m4u_tci_session, m4u_tci_msg);
-#else
+
 	ret = m4u_exec_cmd(&m4u_dci_session, m4u_dci_msg);
-#endif
 	if (ret) {
 		M4UMSG("m4u exec command fail\n");
 		ret = -1;
@@ -1723,16 +1791,13 @@ static int dr_transact(void)
 		goto out;
 	}
 
-	memset(m4u_dci_msg, 0, sizeof(struct m4u_msg));
+	memset(m4u_dci_msg, 0, sizeof(m4u_msg_t));
 
 	m4u_dci_msg->cmd = CMD_M4U_SYSTRACE_TRANSACT;
 	m4u_dci_msg->systrace_param.pa = 0;
 	m4u_dci_msg->systrace_param.size = 0;
-#if defined(CONFIG_MTK_TEE_GP_SUPPORT)
-		ret = m4u_exec_tci(&m4u_tci_session, m4u_tci_msg);
-#else
+
 	ret = m4u_exec_cmd(&m4u_dci_session, m4u_dci_msg);
-#endif
 	if (ret) {
 		M4UMSG("m4u exec command fail\n");
 		ret = -1;
@@ -1747,34 +1812,40 @@ out:
 
 #endif
 /* ------------------------------------------------------------- */
-#include "mobicore_driver_api.h"
-
-static const struct mc_uuid_t m4u_drv_uuid = M4U_DRV_UUID;
-static struct mc_session_handle m4u_dci_session;
-static struct m4u_msg *m4u_dci_msg;
 
 int m4u_sec_init(void)
 {
-	int ret;
+	uint32_t deviceId = MC_DEVICE_ID_DEFAULT;
 	enum mc_result mcRet;
 
-	M4UINFO("call m4u_sec_init in normal m4u driver\n");
-
 	if (m4u_tee_en) {
-		M4UMSG("warning: m4u secure has been inited, %d\n", m4u_tee_en);
+		M4UMSG("warn: m4u secure has been inited, %d\n", m4u_tee_en);
 		goto m4u_sec_reinit;
 	}
 
+	M4UMSG("call m4u_sec_init in nornal m4u driver\n");
+
+	/* Initialize session handle data */
+	memset(&m4u_dci_session, 0, sizeof(m4u_dci_session));
+
+	/* Open MobiCore device */
+	mcRet = mc_open_device(deviceId);
+	if (mcRet != MC_DRV_OK) {
+		M4UMSG("tz_m4u: error mc_open_device returned: %d\n", mcRet);
+		if (mcRet != MC_DRV_ERR_INVALID_OPERATION)
+			return -1;
+	}
+
 	/* Allocating WSM for DCI */
-	mcRet = mc_malloc_wsm(MC_DEVICE_ID_DEFAULT, 0,
-		sizeof(struct m4u_msg), (uint8_t **) &m4u_dci_msg, 0);
+	mcRet = mc_malloc_wsm(deviceId, 0, sizeof(struct m4u_msg),
+			      (uint8_t **) &m4u_dci_msg, 0);
 	if (mcRet != MC_DRV_OK) {
 		M4UMSG("tz_m4u: mc_malloc_wsm returned: %d\n", mcRet);
 		return -1;
 	}
 
 	/* Open session the trustlet */
-	m4u_dci_session.device_id = MC_DEVICE_ID_DEFAULT;
+	m4u_dci_session.device_id = deviceId;
 	mcRet = mc_open_session(&m4u_dci_session,
 				&m4u_drv_uuid,
 				(uint8_t *) m4u_dci_msg,
@@ -1784,93 +1855,119 @@ int m4u_sec_init(void)
 		return -1;
 	}
 
-	M4UINFO("tz_m4u: open DCI session returned: %d\n", mcRet);
+	M4UMSG("tz_m4u: open DCI session returned: %d\n", mcRet);
 
-	{
-		int i, j;
+	msleep(20);
 
-		for (i = 0; i < 10000000; i++)
-			j++;
-	}
-
-	m4u_sec_set_context();
-
-	if (!m4u_tee_en) {
-		ret = m4u_sec_context_init();
-		if (ret)
-			return ret;
-
-		m4u_tee_en = 1;
-	} else {
-		M4UMSG("warning: m4u secure has been inited, %d\n", m4u_tee_en);
-	}
 m4u_sec_reinit:
-	ret = __m4u_sec_init();
-	if (ret < 0) {
-		m4u_sec_context_deinit();
-		M4UMSG("%s:init fail,ret=0x%x\n", __func__, ret);
-		return ret;
-	}
 
-	/* don't deinit ta because of multiple init operation */
-	M4UINFO("%s:normal init done\n", __func__);
+	m4u_open_trustlet(deviceId);
+	__m4u_sec_init();
+#ifdef __M4U_SECURE_SYSTRACE_ENABLE__
+	{
+		union callback_func callback;
+
+		callback.dr.map = dr_map;
+		callback.dr.unmap = dr_unmap;
+		callback.dr.transact = dr_transact;
+		init_sectrace("M4U", if_dci, usage_dr, 64, &callback);
+	}
+#endif
+	m4u_close_trustlet(deviceId);
+
+	m4u_tee_en = 1;
+	M4UMSG("m4u_sec_init in nornal m4u driver is done\n");
+
 	return 0;
 }
 
-int m4u_config_port_tee(M4U_PORT_STRUCT *pM4uPort)	/* native */
+int m4u_config_port_tee(M4U_PORT_STRUCT *pM4uPort)
 {
 	int ret;
-	struct m4u_sec_context *ctx;
 
-	ctx = m4u_sec_ctx_get(CMD_M4U_CFG_PORT);
-	if (!ctx)
-		return -EFAULT;
+	mutex_lock(&m4u_dci_mutex);
+	if (!m4u_dci_msg) {
+		M4UMSG("error: m4u_dci_msg==null\n");
+		ret = -1;
+		goto out;
+	}
 
-	ctx->m4u_msg->cmd = CMD_M4U_CFG_PORT;
-	ctx->m4u_msg->port_param.port = pM4uPort->ePortID;
-	ctx->m4u_msg->port_param.virt = pM4uPort->Virtuality;
-	ctx->m4u_msg->port_param.direction = pM4uPort->Direction;
-	ctx->m4u_msg->port_param.distance = pM4uPort->Distance;
-	ctx->m4u_msg->port_param.sec = 0;
+	m4u_dci_msg->cmd = CMD_M4U_CFG_PORT;
+	m4u_dci_msg->port_param.port = pM4uPort->ePortID;
+	m4u_dci_msg->port_param.virt = pM4uPort->Virtuality;
+	m4u_dci_msg->port_param.direction = pM4uPort->Direction;
+	m4u_dci_msg->port_param.distance = pM4uPort->Distance;
+	m4u_dci_msg->port_param.sec = pM4uPort->Security;
 
-	ret = m4u_exec_cmd(ctx);
+	ret = m4u_exec_cmd(&m4u_dci_session, m4u_dci_msg);
 	if (ret) {
 		M4UMSG("m4u exec command fail\n");
 		ret = -1;
 		goto out;
 	}
-	ret = ctx->m4u_msg->rsp;
+	ret = m4u_dci_msg->rsp;
 
 out:
-	m4u_sec_ctx_put(ctx);
+	mutex_unlock(&m4u_dci_mutex);
 	return ret;
 }
 
-int m4u_config_port_array_tee(unsigned char *port_array)	/* native */
-{
+int m4u_config_port_array_tee(unsigned char *port_array)
+{				/* native */
 	int ret;
-	struct m4u_sec_context *ctx;
 
-	ctx = m4u_sec_ctx_get(CMD_M4U_CFG_PORT_ARRAY);
-	if (!ctx)
-		return -EFAULT;
+	mutex_lock(&m4u_dci_mutex);
+	if (!m4u_dci_msg) {
+		M4UMSG("error: m4u_dci_msg==null\n");
+		ret = -1;
+		goto out;
+	}
 
-	memset(ctx->m4u_msg, 0, sizeof(*ctx->m4u_msg));
-	memcpy(ctx->m4u_msg->port_array_param.m4u_port_array, port_array,
-		   sizeof(ctx->m4u_msg->port_array_param.m4u_port_array));
+	memset(m4u_dci_msg, 0, sizeof(struct m4u_msg));
+	memcpy(m4u_dci_msg->port_array_param.m4u_port_array, port_array,
+	       sizeof(m4u_dci_msg->port_array_param.m4u_port_array));
 
-	ctx->m4u_msg->cmd = CMD_M4U_CFG_PORT_ARRAY;
+	m4u_dci_msg->cmd = CMD_M4U_CFG_PORT_ARRAY;
 
-	ret = m4u_exec_cmd(ctx);
+	ret = m4u_exec_cmd(&m4u_dci_session, m4u_dci_msg);
 	if (ret) {
 		M4UMSG("m4u exec command fail\n");
 		ret = -1;
 		goto out;
 	}
-	ret = ctx->m4u_msg->rsp;
+	ret = m4u_dci_msg->rsp;
 
 out:
-	m4u_sec_ctx_put(ctx);
+	mutex_unlock(&m4u_dci_mutex);
+	return ret;
+}
+
+static int m4u_unmap_nonsec_buffer(unsigned int mva, unsigned int size)
+{
+	int ret;
+
+	mutex_lock(&m4u_dci_mutex);
+
+	if (m4u_dci_msg == NULL) {
+		M4UMSG("%s TCI/DCI error\n", __func__);
+		ret = MC_DRV_ERR_NO_FREE_MEMORY;
+		goto out;
+	}
+
+	m4u_dci_msg->cmd = CMD_M4U_UNMAP_NONSEC_BUFFER;
+	m4u_dci_msg->buf_param.mva = mva;
+	m4u_dci_msg->buf_param.size = size;
+
+	ret = m4u_exec_cmd(&m4u_dci_session, m4u_dci_msg);
+	if (ret) {
+		M4UMSG("m4u exec command fail\n");
+		ret = -1;
+		goto out;
+	}
+	ret = m4u_dci_msg->rsp;
+
+out:
+	mutex_unlock(&m4u_dci_mutex);
 	return ret;
 }
 
@@ -1878,101 +1975,111 @@ out:
 int m4u_larb_backup_sec(unsigned int larb_idx)
 {
 	int ret;
-	struct m4u_sec_context *ctx;
 
-	ctx = m4u_sec_ctx_get(CMD_M4U_LARB_BACKUP);
-	if (!ctx)
-		return -EFAULT;
+	mutex_lock(&m4u_dci_mutex);
 
-	ctx->m4u_msg->cmd = CMD_M4U_LARB_BACKUP;
-	ctx->m4u_msg->larb_param.larb_idx = larb_idx;
+	if (m4u_dci_msg == NULL) {
+		M4UMSG("%s TCI/DCI error\n", __func__);
+		ret = MC_DRV_ERR_NO_FREE_MEMORY;
+		goto out;
+	}
 
-	ret = m4u_exec_cmd(ctx);
+	m4u_dci_msg->cmd = CMD_M4U_LARB_BACKUP;
+	m4u_dci_msg->larb_param.larb_idx = larb_idx;
+
+	ret = m4u_exec_cmd(&m4u_dci_session, m4u_dci_msg);
 	if (ret) {
 		M4UMSG("m4u exec command fail\n");
 		ret = -1;
 		goto out;
 	}
-	ret = ctx->m4u_msg->rsp;
+	ret = m4u_dci_msg->rsp;
 
 out:
-	m4u_sec_ctx_put(ctx);
+	mutex_unlock(&m4u_dci_mutex);
 	return ret;
 }
 
 int m4u_larb_restore_sec(unsigned int larb_idx)
 {
 	int ret;
-	struct m4u_sec_context *ctx;
 
-	ctx = m4u_sec_ctx_get(CMD_M4U_LARB_RESTORE);
-	if (!ctx)
-		return -EFAULT;
+	mutex_lock(&m4u_dci_mutex);
 
-	ctx->m4u_msg->cmd = CMD_M4U_LARB_RESTORE;
-	ctx->m4u_msg->larb_param.larb_idx = larb_idx;
+	if (m4u_dci_msg == NULL) {
+		M4UMSG("%s TCI/DCI error\n", __func__);
+		ret = MC_DRV_ERR_NO_FREE_MEMORY;
+		goto out;
+	}
 
-	ret = m4u_exec_cmd(ctx);
+	m4u_dci_msg->cmd = CMD_M4U_LARB_RESTORE;
+	m4u_dci_msg->larb_param.larb_idx = larb_idx;
+
+	ret = m4u_exec_cmd(&m4u_dci_session, m4u_dci_msg);
 	if (ret) {
 		M4UMSG("m4u exec command fail\n");
 		ret = -1;
 		goto out;
 	}
-	ret = ctx->m4u_msg->rsp;
+	ret = m4u_dci_msg->rsp;
 
 out:
-	m4u_sec_ctx_put(ctx);
+	mutex_unlock(&m4u_dci_mutex);
 	return ret;
 }
-
-
 
 static int m4u_reg_backup_sec(void)
 {
 	int ret;
-	struct m4u_sec_context *ctx;
 
-	ctx = m4u_sec_ctx_get(CMD_M4U_REG_BACKUP);
-	if (!ctx)
-		return -EFAULT;
+	mutex_lock(&m4u_dci_mutex);
 
-	ctx->m4u_msg->cmd = CMD_M4U_REG_BACKUP;
+	if (m4u_dci_msg == NULL) {
+		M4UMSG("%s TCI/DCI error\n", __func__);
+		ret = MC_DRV_ERR_NO_FREE_MEMORY;
+		goto out;
+	}
 
-	ret = m4u_exec_cmd(ctx);
+	m4u_dci_msg->cmd = CMD_M4U_REG_BACKUP;
+
+	ret = m4u_exec_cmd(&m4u_dci_session, m4u_dci_msg);
 	if (ret) {
 		M4UMSG("m4u exec command fail\n");
 		ret = -1;
 		goto out;
 	}
-	ret = ctx->m4u_msg->rsp;
+	ret = m4u_dci_msg->rsp;
 
 out:
-	m4u_sec_ctx_put(ctx);
+	mutex_unlock(&m4u_dci_mutex);
 	return ret;
 }
 
 static int m4u_reg_restore_sec(void)
 {
 	int ret;
-	struct m4u_sec_context *ctx;
 
-	ctx = m4u_sec_ctx_get(CMD_M4U_REG_RESTORE);
-	if (!ctx)
-		return -EFAULT;
+	mutex_lock(&m4u_dci_mutex);
 
-	ctx->m4u_msg->cmd = CMD_M4U_REG_RESTORE;
+	if (m4u_dci_msg == NULL) {
+		M4UMSG("%s TCI/DCI error\n", __func__);
+		ret = MC_DRV_ERR_NO_FREE_MEMORY;
+		goto out;
+	}
 
-	ret = m4u_exec_cmd(ctx);
+	m4u_dci_msg->cmd = CMD_M4U_REG_RESTORE;
+
+	ret = m4u_exec_cmd(&m4u_dci_session, m4u_dci_msg);
 	if (ret) {
 		M4UMSG("m4u exec command fail\n");
 		ret = -1;
 		goto out;
 	}
 
-	ret = ctx->m4u_msg->rsp;
+	ret = m4u_dci_msg->rsp;
 
 out:
-	m4u_sec_ctx_put(ctx);
+	mutex_unlock(&m4u_dci_mutex);
 	return ret;
 }
 
@@ -1996,8 +2103,8 @@ static void m4u_late_resume(void)
 }
 
 static struct notifier_block m4u_fb_notifier;
-static int m4u_fb_notifier_callback(
-		struct notifier_block *self, unsigned long event, void *data)
+static int m4u_fb_notifier_callback(struct notifier_block *self,
+				    unsigned long event, void *data)
 {
 	struct fb_event *evdata = data;
 	int blank;
@@ -2027,62 +2134,41 @@ static int m4u_fb_notifier_callback(
 	return 0;
 }
 
+#if 1
 int m4u_map_nonsec_buf(int port, unsigned int mva, unsigned int size)
 {
 	int ret;
 
-	struct m4u_sec_context *ctx;
+	mutex_lock(&m4u_dci_mutex);
 
-	ctx = m4u_sec_ctx_get(CMD_M4U_MAP_NONSEC_BUFFER);
-	if (!ctx)
-		return -EFAULT;
+	if (m4u_dci_msg == NULL) {
+		M4UMSG("%s TCI/DCI error\n", __func__);
+		ret = MC_DRV_ERR_NO_FREE_MEMORY;
+		goto out;
+	}
 
-	ctx->m4u_msg->cmd = CMD_M4U_MAP_NONSEC_BUFFER;
-	ctx->m4u_msg->buf_param.mva = mva;
-	ctx->m4u_msg->buf_param.size = size;
-	ctx->m4u_msg->buf_param.port = port;
+	m4u_dci_msg->cmd = CMD_M4U_MAP_NONSEC_BUFFER;
+	m4u_dci_msg->buf_param.mva = mva;
+	m4u_dci_msg->buf_param.size = size;
 
-	ret = m4u_exec_cmd(ctx);
+	ret = m4u_exec_cmd(&m4u_dci_session, m4u_dci_msg);
 	if (ret) {
 		M4UMSG("m4u exec command fail\n");
 		ret = -1;
 		goto out;
 	}
-	ret = ctx->m4u_msg->rsp;
+	ret = m4u_dci_msg->rsp;
 
 out:
-	m4u_sec_ctx_put(ctx);
+	mutex_unlock(&m4u_dci_mutex);
 	return ret;
 }
+#endif
 
+#endif
 
-static int m4u_unmap_nonsec_buffer(unsigned int mva, unsigned int size)
-{
-	int ret;
-	struct m4u_sec_context *ctx;
-
-	ctx = m4u_sec_ctx_get(CMD_M4U_UNMAP_NONSEC_BUFFER);
-	if (!ctx)
-		return -EFAULT;
-
-	ctx->m4u_msg->cmd = CMD_M4U_UNMAP_NONSEC_BUFFER;
-	ctx->m4u_msg->buf_param.mva = mva;
-	ctx->m4u_msg->buf_param.size = size;
-
-	ret = m4u_exec_cmd(ctx);
-	if (ret) {
-		M4UMSG("m4u exec command fail\n");
-		ret = -1;
-		goto out;
-	}
-	ret = ctx->m4u_msg->rsp;
-
-out:
-	m4u_sec_ctx_put(ctx);
-	return ret;
-}
-
-
+#ifdef M4U_TEE_SERVICE_ENABLE
+static DEFINE_MUTEX(gM4u_sec_init);
 #endif
 
 static long MTK_M4U_ioctl(struct file *filp, unsigned int cmd,

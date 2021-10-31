@@ -492,11 +492,6 @@ struct IMGSENSOR_INIT_FUNC_LIST kdSensorList[MAX_NUM_OF_SUPPORT_SENSOR] = {
 	SENSOR_DRVNAME_HI704_YUV,
 	HI704_YUV_SensorInit},
 #endif
-#if defined(HI556_MIPI_RAW)
-	{HI556_SENSOR_ID,
-	SENSOR_DRVNAME_HI556_MIPI_RAW,
-	HI556_MIPI_RAW_SensorInit},
-#endif
 #if defined(HI551_MIPI_RAW)
 	{HI551_SENSOR_ID,
 	SENSOR_DRVNAME_HI551_MIPI_RAW,
@@ -693,7 +688,41 @@ struct IMGSENSOR_INIT_FUNC_LIST kdSensorList[MAX_NUM_OF_SUPPORT_SENSOR] = {
 	SENSOR_DRVNAME_T8EV5_YUV,
 	T8EV5_YUV_SensorInit},
 #endif
+//zhaiyankun_hq@ODM_HQ.Multimedia.Camera.driver, 2018/12/7, Add for bring up start
+#if defined(HI846_MIPI_RAW)
+	{HI846_SENSOR_ID,
+	SENSOR_DRVNAME_HI846_MIPI_RAW,
+	HI846_MIPI_RAW_SensorInit},
+#endif
 
+
+
+#if defined(HI556_MIPI_RAW)
+	{HI556_SENSOR_ID,
+	SENSOR_DRVNAME_HI556_MIPI_RAW,
+	HI556_MIPI_RAW_SensorInit},
+#endif
+
+
+#if defined(GC2375H_MIPI_RAW)
+	{GC2375H_SENSOR_ID,
+	SENSOR_DRVNAME_GC2375H_MIPI_RAW,
+	GC2375H_MIPI_RAW_SensorInit},
+#endif
+
+#if defined(GC5035_MIPI_RAW)
+	{GC5035_SENSOR_ID,
+	SENSOR_DRVNAME_GC5035_MIPI_RAW,
+	GC5035_MIPI_RAW_SensorInit},
+#endif
+
+/* chenlijun_hq@ODM_HQ.Multimedia.camera, 2018/12/10, modify for camera bring up*/
+#if defined(S5K3H7YX_MIPI_RAW)
+		{S5K3H7YX_SENSOR_ID,
+		SENSOR_DRVNAME_S5K3H7YX_MIPI_RAW,
+		S5K3H7YX_MIPI_RAW_SensorInit},
+#endif
+//zhaiyankun_hq@ODM_HQ.Multimedia.Camera.driver, 2018/12/7, Add for bring up end
 	/*  ADD sensor driver before this line */
 	{0, {0}, NULL}, /* end of list */
 };

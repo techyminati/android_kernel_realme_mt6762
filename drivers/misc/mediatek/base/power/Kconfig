@@ -43,6 +43,15 @@ config MTK_CM_MGR
 	  on power table.
 	  If unsure, say N.
 
+config MTK_QOS_FRAMEWORK
+	bool "MTK QOS FRAMEWORK"
+	default n
+	---help---
+	  This kernel config can be used to enable MTK QOS FRAMEWORK.
+	  When enabling this option, BW Limiter and BW Bound Detector
+	  will be enabled and set EMI hardware.
+	  If unsure, say N.
+
 config CPU_FORCE_TO_BIN2
 	bool "Read extra efuse for BIN2 IC"
 	default n

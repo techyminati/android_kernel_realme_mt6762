@@ -401,6 +401,7 @@ void mu3d_hal_alloc_qmu_mem(void)
 	dma_addr_t io_ptr;
 	TBD *bptr;
 	dma_addr_t io_bptr;
+	int ret;
 
 	for (i = 1; i <= MAX_QMU_EP; i++) {
 		/* Allocate Tx GPD */
@@ -410,6 +411,9 @@ void mu3d_hal_alloc_qmu_mem(void)
 		os_memset(ptr, 0, size);
 
 		io_ptr = dma_map_single(NULL, ptr, size, DMA_TO_DEVICE);
+		ret = dma_mapping_error(NULL, io_ptr);
+		if (ret)
+			return;
 		init_gpd_list(USB_RX, i, ptr, io_ptr, MAX_GPD_NUM);
 		Rx_gpd_end[i] = ptr;
 
@@ -431,6 +435,9 @@ void mu3d_hal_alloc_qmu_mem(void)
 		os_memset(ptr, 0, size);
 
 		io_ptr = dma_map_single(NULL, ptr, size, DMA_TO_DEVICE);
+		ret = dma_mapping_error(NULL, io_ptr);
+		if (ret)
+			return;
 		init_gpd_list(USB_TX, i, ptr, io_ptr, MAX_GPD_NUM);
 		Tx_gpd_end[i] = ptr;
 
@@ -449,6 +456,9 @@ void mu3d_hal_alloc_qmu_mem(void)
 		bptr = (TBD *) os_mem_alloc(size);
 		os_memset(bptr, 0, size);
 		io_bptr = dma_map_single(NULL, bptr, size, DMA_TO_DEVICE);
+		ret = dma_mapping_error(NULL, io_bptr);
+		if (ret)
+			return;
 		init_bd_list(USB_RX, i, bptr, io_bptr, MAX_BD_NUM);
 
 		/* Allocate Rx BD */
@@ -458,6 +468,9 @@ void mu3d_hal_alloc_qmu_mem(void)
 		bptr = (TBD *) os_mem_alloc(size);
 		os_memset(bptr, 0, size);
 		io_bptr = dma_map_single(NULL, bptr, size, DMA_TO_DEVICE);
+		ret = dma_mapping_error(NULL, io_bptr);
+		if (ret)
+			return;
 		init_bd_list(USB_TX, i, bptr, io_bptr, MAX_BD_NUM);
 	}
 }

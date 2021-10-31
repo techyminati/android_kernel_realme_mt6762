@@ -93,6 +93,18 @@ void unlockadcch3(void)
 	mutex_unlock(&auxadc_ch3_mutex);
 }
 
+static void wk_auxadc_reset(void)
+{
+	pmic_set_register_value(PMIC_RG_AUXADC_RST, 1);
+	pmic_set_register_value(PMIC_RG_AUXADC_RST, 0);
+	pmic_set_register_value(PMIC_BANK_AUXADC_SWRST, 1);
+	pmic_set_register_value(PMIC_BANK_AUXADC_SWRST, 0);
+	/* avoid GPS can't receive AUXADC ready after reset, request again */
+	pmic_set_register_value(PMIC_AUXADC_RQST_CH7, 1);
+	pmic_set_register_value(PMIC_AUXADC_RQST_DCXO_BY_GPS, 1);
+	pr_notice("reset AUXADC done\n");
+}
+
 /*********************************
  * PMIC AUXADC Calibration
  *********************************/
@@ -265,18 +277,6 @@ struct pmic_adc_dbg_st {
 	unsigned short reg[DBG_REG_SIZE];
 };
 static unsigned int adc_dbg_addr[DBG_REG_SIZE];
-
-static void wk_auxadc_reset(void)
-{
-	pmic_set_register_value(PMIC_RG_AUXADC_RST, 1);
-	pmic_set_register_value(PMIC_RG_AUXADC_RST, 0);
-	pmic_set_register_value(PMIC_BANK_AUXADC_SWRST, 1);
-	pmic_set_register_value(PMIC_BANK_AUXADC_SWRST, 0);
-	/* avoid GPS can't receive AUXADC ready after reset, request again */
-	pmic_set_register_value(PMIC_AUXADC_RQST_CH7, 1);
-	pmic_set_register_value(PMIC_AUXADC_RQST_DCXO_BY_GPS, 1);
-	pr_notice("reset AUXADC done\n");
-}
 
 static void wk_auxadc_dbg_dump(void)
 {

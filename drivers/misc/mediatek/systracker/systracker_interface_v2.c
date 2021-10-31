@@ -336,7 +336,6 @@ static int systracker_watchpoint_enable_default(void)
 	track_config.enable_wp = 1;
 
 	writel(track_config.wp_phy_address, IOMEM(BUS_DBG_WP));
-	/* writel(0x0000000F, IOMEM(BUS_DBG_WP_MASK)); */
 	writel(0x00000000, IOMEM(BUS_DBG_WP_MASK));
 
 	con = readl(IOMEM(BUS_DBG_CON_INFRA)) | BUS_DBG_CON_WP_EN;

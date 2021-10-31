@@ -49,6 +49,30 @@
 
 #define TAG "cif"
 
+#ifdef VENDOR_EDIT
+//Yongyao.Song#PSW.NW.PWR.1053636, 2017/08/01, add for modem wake up source
+//Yuanfei.Liu@PSW.NW.PWR.1257900.1284205, 2018/02/21, add for data wake up source 0,1,2
+#define MODEM_WAKEUP_SRC_NUM 10
+#define MD_LOG_WAKEUP_1 6
+#define MUXD_WAKEUP 10
+#define NVRAM_WAKEUP 14
+#define DATA_WAKEUP_0 20
+#define DATA_WAKEUP_1 21
+#define DATA_WAKEUP_2 22
+#define READ_AP_WAKEUP 32
+#define WCN_WAKEUP 34
+#define MD_LOG_WAKEUP_2 42
+#if (MD_GENERATION <= 6292)
+#define MD_LOG_WAKEUP_3 8
+#else
+#define MD_LOG_WAKEUP_3 7
+#endif
+#define IMS_WAKEUP 55
+#define MD_STATUS_WAKEUP 67
+#define AGPS_WAKEUP 167
+extern int modem_wakeup_src_count[MODEM_WAKEUP_SRC_NUM];
+extern char modem_wakeup_src_string[MODEM_WAKEUP_SRC_NUM][20];
+#endif /* VENDOR_EDIT */
 #define IS_PASS_SKB(per_md_data, qno)	\
 	(!per_md_data->data_usb_bypass && (per_md_data->is_in_ee_dump == 0) \
 	 && ((1<<qno) & NET_RX_QUEUE_MASK))
@@ -153,6 +177,31 @@ static int rx_queue_buffer_size[QUEUE_NUM] = { 10 * 1024, 100 * 1024,
 
 static int tx_queue_buffer_size[QUEUE_NUM] = { 10 * 1024, 100 * 1024,
 	50 * 1024, 50 * 1024, 50 * 1024, 10 * 1024, 10 * 1024, 10 * 1024,
+};
+#endif
+
+#if (MD_GENERATION >= 6295)
+static int rx_queue_buffer_size[QUEUE_NUM] = { 80 * 1024, 80 * 1024,
+	40 * 1024, 80 * 1024, 20 * 1024, 20 * 1024, 64 * 1024, 0 * 1024,
+	8 * 1024, 0 * 1024, 0 * 1024, 0 * 1024, 0 * 1024, 0 * 1024,
+	0 * 1024, 0 * 1024,
+};
+
+static int tx_queue_buffer_size[QUEUE_NUM] = { 128 * 1024, 40 * 1024,
+	8 * 1024, 40 * 1024, 20 * 1024, 20 * 1024, 64 * 1024, 0 * 1024,
+	8 * 1024, 0 * 1024, 0 * 1024, 0 * 1024, 0 * 1024, 0 * 1024,
+	0 * 1024, 0 * 1024,
+};
+static int rx_exp_buffer_size[QUEUE_NUM] = { 12 * 1024, 32 * 1024,
+	8 * 1024, 0 * 1024, 0 * 1024, 0 * 1024, 8 * 1024, 0 * 1024,
+	0 * 1024, 0 * 1024, 0 * 1024, 0 * 1024, 0 * 1024, 0 * 1024,
+	0 * 1024, 0 * 1024,
+};
+
+static int tx_exp_buffer_size[QUEUE_NUM] = { 12 * 1024, 32 * 1024,
+	8 * 1024, 0 * 1024, 0 * 1024, 0 * 1024, 8 * 1024, 0 * 1024,
+	0 * 1024, 0 * 1024, 0 * 1024, 0 * 1024, 0 * 1024, 0 * 1024,
+	0 * 1024, 0 * 1024,
 };
 #else
 static int rx_queue_buffer_size[QUEUE_NUM] = { 80 * 1024, 80 * 1024,
@@ -299,6 +348,10 @@ static void md_ccif_sram_rx_work(struct work_struct *work)
 	struct sk_buff *skb = NULL;
 	int pkg_size, ret = 0, retry_cnt = 0;
 	int c2k_to_ccci_ch = 0;
+#ifdef VENDOR_EDIT
+//Yongyao.Song@PSW.NW.PWR.1053636, 2017/08/01, add for modem wake up source
+    int first_enter = 1;
+#endif /* VENDOR_EDIT */
 
 	u32 i = 0;
 	u8 *md_feature = (u8 *)(&md_ctrl->ccif_sram_layout->md_rt_data);
@@ -340,6 +393,51 @@ static void md_ccif_sram_rx_work(struct work_struct *work)
 		CCCI_NOTICE_LOG(md_ctrl->md_id, TAG,
 			"CCIF_MD wakeup source:(SRX_IDX/%d)(%u)\n",
 			ccci_h->channel, md_ctrl->wakeup_count);
+		#ifdef VENDOR_EDIT
+		//Yongyao.Song@PSW.NW.PWR.1053636, 2017/08/01, add for modem wake up source
+		//Yuanfei.Liu@PSW.NW.PWR.1257900.1284205, 2018/02/21, add for data wake up source 0,1,2
+		if(first_enter == 1){
+		    switch(ccci_h->channel){
+		        case MD_LOG_WAKEUP_1:
+		            modem_wakeup_src_count[0]++;
+		            break;
+		        case MUXD_WAKEUP:
+		            modem_wakeup_src_count[1]++;
+		            break;
+		        case NVRAM_WAKEUP:
+		            modem_wakeup_src_count[2]++;
+		            break;
+		        case DATA_WAKEUP_0:
+		        case DATA_WAKEUP_1:
+		        case DATA_WAKEUP_2:
+		            modem_wakeup_src_count[3]++;
+		            break;
+		       case READ_AP_WAKEUP:
+		            modem_wakeup_src_count[4]++;
+		            break;
+		       case WCN_WAKEUP:
+		            modem_wakeup_src_count[5]++;
+		            break;
+		        case MD_LOG_WAKEUP_2:
+		        case MD_LOG_WAKEUP_3:
+		            //channel 42 is the same with channel 6
+		            modem_wakeup_src_count[0]++;
+		            break;
+		        case IMS_WAKEUP:
+		            modem_wakeup_src_count[6]++;
+		            break;
+		        case MD_STATUS_WAKEUP:
+		            modem_wakeup_src_count[7]++;
+		            break;
+		        case AGPS_WAKEUP:
+		            modem_wakeup_src_count[8]++;
+		            break;
+		        default:
+		            modem_wakeup_src_count[9]++;
+		    }
+		    first_enter = 0;
+		}
+		#endif /* VENDOR_EDIT */
 	}
 	ccci_hdr = *ccci_h;
 	ccci_md_check_rx_seq_num(md_ctrl->md_id,
@@ -542,6 +640,10 @@ static int ccif_rx_collect(struct md_ccif_queue *queue, int budget,
 		(struct md_ccif_ctrl *)ccci_hif_get_by_id(queue->hif_id);
 	struct ccci_per_md *per_md_data =
 		ccci_get_per_md_data(md_ctrl->md_id);
+#ifdef VENDOR_EDIT
+//Yongyao.Song@PSW.NW.PWR.1053636, 2017/08/01, add for modem wake up source
+    int first_enter = 1;
+#endif /* VENDOR_EDIT */
 
 	if (atomic_read(&queue->rx_on_going)) {
 		CCCI_DEBUG_LOG(md_ctrl->md_id, TAG,
@@ -624,6 +726,51 @@ static int ccif_rx_collect(struct md_ccif_queue *queue, int budget,
 				"CCIF_MD wakeup source:(%d/%d/%x)(%u)\n",
 				queue->index, ccci_h->channel,
 				ccci_h->reserved, md_ctrl->wakeup_count);
+    		#ifdef VENDOR_EDIT
+    		//Yongyao.Song@PSW.NW.PWR.1053636, 2017/08/01, add for modem wake up source
+    		//Yuanfei.Liu@PSW.NW.PWR.1257900.1284205, 2018/02/21, add for data wake up source 0,1,2
+    		if(first_enter == 1){
+    		    switch(ccci_h->channel){
+    		        case MD_LOG_WAKEUP_1:
+    		            modem_wakeup_src_count[0]++;
+    		            break;
+    		        case MUXD_WAKEUP:
+    		            modem_wakeup_src_count[1]++;
+    		            break;
+    		        case NVRAM_WAKEUP:
+    		            modem_wakeup_src_count[2]++;
+    		            break;
+		        case DATA_WAKEUP_0:
+		        case DATA_WAKEUP_1:
+		        case DATA_WAKEUP_2:
+    		            modem_wakeup_src_count[3]++;
+    		            break;
+    		       case READ_AP_WAKEUP:
+    		            modem_wakeup_src_count[4]++;
+    		            break;
+    		       case WCN_WAKEUP:
+    		            modem_wakeup_src_count[5]++;
+    		            break;
+    		        case MD_LOG_WAKEUP_2:
+		        case MD_LOG_WAKEUP_3:
+    		            //channel 42 is the same with channel 6
+    		            modem_wakeup_src_count[0]++;
+    		            break;
+    		        case IMS_WAKEUP:
+    		            modem_wakeup_src_count[6]++;
+    		            break;
+    		        case MD_STATUS_WAKEUP:
+    		            modem_wakeup_src_count[7]++;
+    		            break;
+    		        case AGPS_WAKEUP:
+    		            modem_wakeup_src_count[8]++;
+    		            break;
+    		        default:
+    		            modem_wakeup_src_count[9]++;
+    		    }
+    		    first_enter = 0;
+    		}
+    		#endif /* VENDOR_EDIT */
 		}
 		if (ccci_h->channel == CCCI_C2K_LB_DL)
 			atomic_set(&lb_dl_q, queue->index);
@@ -1103,11 +1250,12 @@ static int md_ccif_op_send_skb(unsigned char hif_id, int qno,
 
 	if (ccci_h->channel == CCCI_C2K_LB_DL)
 		qno = atomic_read(&lb_dl_q);
-
+#if (MD_GENERATION < 6295)
 	if (qno > 7) {
 		CCCI_ERROR_LOG(md_ctrl->md_id, TAG, "qno error (%d)\n", qno);
 		return -CCCI_ERR_INVALID_QUEUE_INDEX;
 	}
+#endif
 	queue = &md_ctrl->txq[qno];
  retry:
 	/* we use irqsave as network require a lock in softirq,

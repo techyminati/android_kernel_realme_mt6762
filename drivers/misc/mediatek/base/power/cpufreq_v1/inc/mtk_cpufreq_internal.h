@@ -186,7 +186,6 @@ cpufreq_write(addr, (cpufreq_read(addr) & ~(_BITMASK_(mask))) | \
 _BITS_(mask, val))
 
 extern struct mt_cpu_dvfs cpu_dvfs[NR_MT_CPU_DVFS];
-
 #define for_each_cpu_dvfs(i, p)			\
 for (i = 0, p = cpu_dvfs; i < NR_MT_CPU_DVFS; i++, p = &cpu_dvfs[i])
 
@@ -283,6 +282,7 @@ extern struct pll_ctrl_t *id_to_pll_ctrl(enum mt_cpu_dvfs_pll_id id);
 
 extern u32 get_devinfo_with_index(u32 index);
 extern int turbo_flag;
+extern unsigned int dvfs_init_flag;
 
 extern void _kick_PBM_by_cpu(void);
 extern unsigned int dvfs_power_mode;

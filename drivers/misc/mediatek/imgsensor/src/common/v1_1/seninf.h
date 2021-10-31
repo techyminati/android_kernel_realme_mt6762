@@ -28,6 +28,7 @@ struct SENINF {
 
 	void __iomem *pseninf_base[SENINF_MAX_NUM];
 };
+extern MINT32 seninf_dump_reg(void);
 
 #endif
 

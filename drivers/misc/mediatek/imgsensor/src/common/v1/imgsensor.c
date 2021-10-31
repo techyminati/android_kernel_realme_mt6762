@@ -40,7 +40,10 @@
 #ifdef CONFIG_MTK_CCU
 #include "ccu_inc.h"
 #endif
-
+#ifdef ODM_HQ_EDIT
+/*Duwenchao@ODM_HQ.BSP.Driver 2018/12/17 add devinfo for cam*/
+#include <linux/hq_devinfo.h>
+#endif
 #include "kd_camera_typedef.h"
 #include "kd_imgsensor.h"
 #include "kd_imgsensor_define.h"
@@ -468,7 +471,10 @@ static inline int imgsensor_check_is_alive(struct IMGSENSOR_SENSOR *psensor)
 
 	return err ? -EIO:err;
 }
-
+#ifdef ODM_HQ_EDIT
+/*Duwenchao@ODM_HQ.BSP.Driver 2018/12/17 add devinfo for cam*/
+extern Cam_buff cam_buff;
+#endif
 /************************************************************************
  * imgsensor_set_driver
  ************************************************************************/
@@ -577,6 +583,35 @@ int imgsensor_set_driver(struct IMGSENSOR_SENSOR *psensor)
 				psensor_inst->status.arch =
 				    psensor->pfunc->arch;
 #endif
+
+#ifdef ODM_HQ_EDIT
+//Yankun.Zhai@ODM_HQ.Multimedia.Camera.driver, 2018/12/13, Add for bring up start
+                switch(psensor->inst.sensor_idx){
+
+                case IMGSENSOR_SENSOR_IDX_MAIN:
+                     if((pSensorList[drv_idx].id != HI846_SENSOR_ID) && \
+                        (pSensorList[drv_idx].id != S5K3H7YX_SENSOR_ID)){
+                        continue;
+                     }
+                break;
+                case IMGSENSOR_SENSOR_IDX_SUB:
+                     if((pSensorList[drv_idx].id != HI556_SENSOR_ID) && \
+                        (pSensorList[drv_idx].id != GC5035_SENSOR_ID)){
+                        continue;
+                     }
+                break;
+                case IMGSENSOR_SENSOR_IDX_MAIN2:
+                     if(pSensorList[drv_idx].id != GC2375H_SENSOR_ID){
+                        continue;
+                     }
+                break;
+
+                default:
+                    pr_warn("unsuported sensor idx: %d",psensor->inst.sensor_idx);
+                break;
+                }
+//Yankun.Zhai@ODM_HQ.Multimedia.Camera.driver, 2018/12/13, Add for bring up end
+#endif
 				if (!imgsensor_check_is_alive(psensor)) {
 					pr_info(
 					    "[%s]:[%d][%d][%s]\n",
@@ -584,7 +619,16 @@ int imgsensor_set_driver(struct IMGSENSOR_SENSOR *psensor)
 					    psensor->inst.sensor_idx,
 					    drv_idx,
 					    psensor_inst->psensor_name);
-
+#ifdef ODM_HQ_EDIT
+					/*Duwenchao@ODM_HQ.BSP.Driver 2018/12/17 add devinfo for cam*/
+					if(0 == psensor->inst.sensor_idx){
+						strcpy(cam_buff.cam_b_name,psensor_inst->psensor_name);
+					}else if(1 == psensor->inst.sensor_idx){
+						strcpy(cam_buff.cam_f_name,psensor_inst->psensor_name);
+					}else if(2 == psensor->inst.sensor_idx){
+						strcpy(cam_buff.cam_b2_name,psensor_inst->psensor_name);
+					}
+#endif
 					ret = drv_idx;
 					break;
 				}
@@ -1335,6 +1379,7 @@ static inline int adopt_CAMERA_HW_FeatureControl(void *pBuf)
 	case SENSOR_FEATURE_GET_SENSOR_PDAF_CAPACITY:
 	case SENSOR_FEATURE_GET_SENSOR_HDR_CAPACITY:
 	case SENSOR_FEATURE_GET_MIPI_PIXEL_RATE:
+	case SENOSR_FEATURE_GET_OFFSET_TO_START_OF_EXPOSURE:
 	case SENSOR_FEATURE_GET_PIXEL_RATE:
 	case SENSOR_FEATURE_SET_PDAF:
 	case SENSOR_FEATURE_SET_SHUTTER_FRAME_TIME:
@@ -1398,6 +1443,8 @@ static inline int adopt_CAMERA_HW_FeatureControl(void *pBuf)
 	case SENSOR_FEATURE_SINGLE_FOCUS_MODE:
 	case SENSOR_FEATURE_CANCEL_AF:
 	case SENSOR_FEATURE_CONSTANT_AF:
+	case SENSOR_FEATURE_GET_AE_EFFECTIVE_FRAME_FOR_LE:
+	case SENSOR_FEATURE_GET_AE_FRAME_MODE_FOR_LE:
 	default:
 		break;
 	}
@@ -1413,6 +1460,7 @@ static inline int adopt_CAMERA_HW_FeatureControl(void *pBuf)
 	case SENSOR_FEATURE_GET_SENSOR_PDAF_CAPACITY:
 	case SENSOR_FEATURE_GET_SENSOR_HDR_CAPACITY:
 	case SENSOR_FEATURE_GET_MIPI_PIXEL_RATE:
+	case SENOSR_FEATURE_GET_OFFSET_TO_START_OF_EXPOSURE:
 	case SENSOR_FEATURE_GET_PIXEL_RATE:
 	{
 		MUINT32 *pValue = NULL;
@@ -1451,6 +1499,8 @@ static inline int adopt_CAMERA_HW_FeatureControl(void *pBuf)
 	case SENSOR_FEATURE_GET_SENSOR_N3D_STREAM_TO_VSYNC_TIME:
 	case SENSOR_FEATURE_GET_PERIOD:
 	case SENSOR_FEATURE_GET_PIXEL_CLOCK_FREQ:
+	case SENSOR_FEATURE_GET_AE_EFFECTIVE_FRAME_FOR_LE:
+	case SENSOR_FEATURE_GET_AE_FRAME_MODE_FOR_LE:
 	{
 		ret = imgsensor_sensor_feature_control(
 		    psensor,
@@ -2033,11 +2083,14 @@ static inline int adopt_CAMERA_HW_FeatureControl(void *pBuf)
 	case SENSOR_FEATURE_GET_SENSOR_PDAF_CAPACITY:
 	case SENSOR_FEATURE_GET_SENSOR_HDR_CAPACITY:
 	case SENSOR_FEATURE_GET_MIPI_PIXEL_RATE:
+	case SENOSR_FEATURE_GET_OFFSET_TO_START_OF_EXPOSURE:
 	case SENSOR_FEATURE_GET_PIXEL_RATE:
 	case SENSOR_FEATURE_SET_ISO:
 	case SENSOR_FEATURE_SET_PDAF:
 	case SENSOR_FEATURE_SET_SHUTTER_FRAME_TIME:
 	case SENSOR_FEATURE_SET_PDFOCUS_AREA:
+	case SENSOR_FEATURE_GET_AE_EFFECTIVE_FRAME_FOR_LE:
+	case SENSOR_FEATURE_GET_AE_FRAME_MODE_FOR_LE:
 		if (copy_to_user(
 		    (void __user *) pFeatureCtrl->pFeaturePara,
 		    (void *)pFeaturePara,

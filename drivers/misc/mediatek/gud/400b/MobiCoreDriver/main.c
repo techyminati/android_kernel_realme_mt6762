@@ -471,16 +471,12 @@ static int mobicore_start(void)
 		goto err_create_dev_user;
 
 #ifdef TBASE_CORE_SWITCHER
+#ifdef CONFIG_TRUSTONIC_BIG_CORE_PREFER_BINDING
 	int core;
-	unsigned int freq = 0, max_freq = 0;
+	unsigned int freq = 0;
 
-	for (core = 0; core < COUNT_OF_CPUS; ++core) {
-		freq = cpufreq_quick_get(core);
-		if (freq > max_freq)
-			max_freq = freq;
-		else if (freq < max_freq)
-			break;
-	}
+	core = COUNT_OF_CPUS;
+	freq = cpufreq_quick_get(core);
 
 	for (--core; core >= 0 && mc_active_core() != core; --core) {
 		ret = mc_switch_core(core);
@@ -489,6 +485,7 @@ static int mobicore_start(void)
 			break;
 	}
 #endif
+#endif /* TBASE_CORE_SWITCHER */
 
 	main_ctx.start_ret = 0;
 	mobicore_ready = true;

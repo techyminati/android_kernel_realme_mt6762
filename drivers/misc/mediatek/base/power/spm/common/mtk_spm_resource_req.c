@@ -48,6 +48,12 @@ static struct mtk_idle_sysfs_handle spm_resource_req_file;
  * This function's implementation depend on platform
  */
 int __attribute__((weak))
+	spm_resource_parse_req_console(struct device_node *np)
+{
+	return -1;
+}
+
+int __attribute__((weak))
 	spm_resource_req_console(unsigned int req, unsigned int res_bitmask)
 {
 	return -1;
@@ -289,7 +295,6 @@ void spm_resource_req_debugfs_init(void)
 bool spm_resource_req_init(void)
 {
 	int i, k;
-	u32 spm_res_bitmask = 0;
 	struct device_node *spm_node = NULL;
 
 	for (i = 0; i < NF_SPM_RESOURCE; i++) {
@@ -302,16 +307,8 @@ bool spm_resource_req_init(void)
 	}
 	spm_node = GET_MTK_SPM_DTS_NODE();
 
-	if (spm_node) {
-		i = of_property_read_u32(spm_node,
-			"resource-disabled", &spm_res_bitmask);
-
-		if (i == 0)
-			spm_resource_req_console(
-				SPM_RESOURCE_CONSOLE_REQ, spm_res_bitmask);
-
-		of_node_put(spm_node);
-	}
+	if (spm_node)
+		spm_resource_parse_req_console(spm_node);
 
 	return true;
 }

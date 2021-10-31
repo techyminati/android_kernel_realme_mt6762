@@ -466,7 +466,10 @@ struct thermal_cooling_device *cdev, unsigned long state)
 		/* To trigger data abort to reset the system
 		 * for thermal protection.
 		 */
-		BUG();
+#ifdef ODM_HQ_EDIT
+/*Hanxing.Duan@ODM.HQ.BSP.CHG.Basic 2019.02.12 remove shutdown in hig temp*/
+	//	BUG();
+#endif /*ODM_HQ_EDIT*/
 	}
 	return 0;
 }

@@ -116,7 +116,9 @@ static DEFINE_MUTEX(mmprofile_buffer_init_mutex);
 static DEFINE_MUTEX(mmprofile_regtable_mutex);
 static DEFINE_MUTEX(mmprofile_meta_buffer_mutex);
 static struct mmprofile_event_t *p_mmprofile_ring_buffer;
+#ifdef CONFIG_MTK_ENG_BUILD
 static unsigned char *p_mmprofile_meta_buffer;
+#endif
 
 static struct mmp_static_event_t mmprofile_static_events[] = {
 	{MMP_ROOT_EVENT, "Root_Event", MMP_INVALID_EVENT},
@@ -323,7 +325,9 @@ void mmprofile_get_dump_buffer(unsigned int start, unsigned long *p_addr,
 static void mmprofile_init_buffer(void)
 {
 	unsigned int b_reset_ring_buffer = 0;
+#ifdef CONFIG_MTK_ENG_BUILD
 	unsigned int b_reset_meta_buffer = 0;
+#endif
 
 	if (!mmprofile_globals.enable)
 		return;
@@ -376,6 +380,7 @@ static void mmprofile_init_buffer(void)
 	MMP_LOG(ANDROID_LOG_DEBUG, "p_mmprofile_ring_buffer=0x%08lx",
 		(unsigned long)p_mmprofile_ring_buffer);
 
+#ifdef CONFIG_MTK_ENG_BUILD
 	if (!p_mmprofile_meta_buffer) {
 		mmprofile_globals.meta_buffer_size =
 			mmprofile_globals.new_meta_buffer_size;
@@ -398,8 +403,8 @@ static void mmprofile_init_buffer(void)
 	    vmalloc(mmprofile_globals.meta_buffer_size);
 #endif
 	}
-	MMP_LOG(ANDROID_LOG_DEBUG,
-		"p_mmprofile_meta_buffer=0x%08lx",
+
+	MMP_LOG(ANDROID_LOG_DEBUG, "p_mmprofile_meta_buffer=0x%08lx",
 		(unsigned long)p_mmprofile_meta_buffer);
 
 	if ((!p_mmprofile_ring_buffer) || (!p_mmprofile_meta_buffer)) {
@@ -416,10 +421,19 @@ static void mmprofile_init_buffer(void)
 		MMP_LOG(ANDROID_LOG_DEBUG, "Cannot allocate buffer");
 		return;
 	}
+#else
+	if (!p_mmprofile_ring_buffer) {
+		bmmprofile_init_buffer = 0;
+		mutex_unlock(&mmprofile_buffer_init_mutex);
+		MMP_LOG(ANDROID_LOG_DEBUG, "Cannot allocate buffer");
+		return;
+	}
+#endif
 
 	if (b_reset_ring_buffer)
 		memset((void *)(p_mmprofile_ring_buffer), 0,
 		       mmprofile_globals.buffer_size_bytes);
+#ifdef CONFIG_MTK_ENG_BUILD
 	if (b_reset_meta_buffer) {
 		struct mmprofile_meta_datablock_t *p_block;
 
@@ -433,6 +447,7 @@ static void mmprofile_init_buffer(void)
 		INIT_LIST_HEAD(&mmprofile_meta_buffer_list);
 		list_add_tail(&(p_block->list), &mmprofile_meta_buffer_list);
 	}
+#endif
 	bmmprofile_init_buffer = 1;
 
 	mutex_unlock(&mmprofile_buffer_init_mutex);
@@ -801,7 +816,7 @@ static void mmprofile_log_int(mmp_event event, enum mmp_log_type type,
 	 */
 	if (unlikely(event < 2))
 		return;
-	index = (atomic_inc_return((atomic_t *)
+	index = ((unsigned int)atomic_inc_return((atomic_t *)
 			&(mmprofile_globals.write_pointer)) - 1)
 	    % (mmprofile_globals.buffer_size_record);
 	/*check vmalloc address is valid or not*/
@@ -814,7 +829,7 @@ static void mmprofile_log_int(mmp_event event, enum mmp_log_type type,
 			mmprofile_globals.new_buffer_size_record);
 		return;
 	}
-	lock = atomic_inc_return((atomic_t *)
+	lock = (unsigned int)atomic_inc_return((atomic_t *)
 		&(p_mmprofile_ring_buffer[index].lock));
 	/*atomic_t is INT, write_pointer is UINT, avoid convert error*/
 	if (mmprofile_globals.write_pointer ==
@@ -826,7 +841,7 @@ static void mmprofile_log_int(mmp_event event, enum mmp_log_type type,
 		 */
 		while (1) {
 			index =
-				(atomic_inc_return((atomic_t *)
+				((unsigned int)atomic_inc_return((atomic_t *)
 				&(mmprofile_globals.write_pointer)) - 1) %
 				(mmprofile_globals.buffer_size_record);
 			if (!pfn_valid(vmalloc_to_pfn
@@ -841,7 +856,7 @@ static void mmprofile_log_int(mmp_event event, enum mmp_log_type type,
 				return;
 			}
 			lock =
-			    atomic_inc_return((atomic_t *) &
+			    (unsigned int)atomic_inc_return((atomic_t *) &
 					(p_mmprofile_ring_buffer[index].lock));
 			/*avoid convert error*/
 			if (mmprofile_globals.write_pointer ==
@@ -1542,12 +1557,14 @@ static ssize_t mmprofile_dbgfs_global_read(struct file *file, char __user *buf,
 		MMPROFILE_GLOBALS_SIZE);
 }
 
+#if 0
 static ssize_t mmprofile_dbgfs_global_write(struct file *file,
 	const char __user *buf, size_t size, loff_t *ppos)
 {
 	return simple_write_to_buffer(&mmprofile_globals,
 		MMPROFILE_GLOBALS_SIZE, ppos, buf, size);
 }
+#endif
 
 static const struct file_operations mmprofile_dbgfs_enable_fops = {
 	.read = mmprofile_dbgfs_enable_read,
@@ -1573,7 +1590,9 @@ static const struct file_operations mmprofile_dbgfs_buffer_fops = {
 
 static const struct file_operations mmprofile_dbgfs_global_fops = {
 	.read = mmprofile_dbgfs_global_read,
+#if 0
 	.write = mmprofile_dbgfs_global_write,
+#endif
 	.llseek = generic_file_llseek,
 };
 

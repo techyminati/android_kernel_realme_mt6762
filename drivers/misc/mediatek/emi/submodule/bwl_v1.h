@@ -27,5 +27,6 @@ extern unsigned int decode_bwl_env(
 	unsigned int dram_type, unsigned int ch_num, unsigned int rk_num);
 extern unsigned int acquire_bwl_ctrl(void __iomem *LAST_EMI_BASE);
 extern void release_bwl_ctrl(void __iomem *LAST_EMI_BASE);
+extern int is_emi_latency_regulator_on(void);
 
 #endif /* __BWL_H__ */

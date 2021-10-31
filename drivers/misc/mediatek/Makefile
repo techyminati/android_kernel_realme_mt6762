@@ -22,6 +22,7 @@ subdir-ccflags-y += -I$(srctree)/drivers/misc/mediatek/include/mt-plat/
 subdir-ccflags-y += -I$(srctree)/drivers/mmc/host/mediatek/$(MTK_PLATFORM)
 
 obj-$(CONFIG_MTK_EMI) += emi/
+obj-$(CONFIG_MTK_EMI_BASIC) += emi/
 obj-$(CONFIG_MTK_EMI_MPU) += emi_mpu/
 obj-$(CONFIG_MTK_ICE_DEBUG) +=ice_debug/
 obj-$(CONFIG_MTK_BASE_POWER) += base/
@@ -61,9 +62,10 @@ obj-y += power/
 obj-$(CONFIG_MTK_PMIC_NEW_ARCH)	+= pmic/
 obj-$(CONFIG_MTK_AUDIODSP_SUPPORT) += adsp/
 obj-$(CONFIG_MTK_AUDIODSP_SUPPORT) += audio_ipi/
+### Please note that sensor must precede scp. ###
+obj-$(CONFIG_MTK_SENSORS_1_0) += sensors-1.0/
 obj-$(CONFIG_MTK_TINYSYS_SCP_SUPPORT) += scp/
 obj-$(CONFIG_MTK_TINYSYS_SCP_SUPPORT) += audio_ipi/
-obj-$(CONFIG_MTK_SENSORS_1_0) += sensors-1.0/
 obj-y += devinfo/
 obj-$(CONFIG_MTK_GPU_SUPPORT) += gpu/
 obj-$(CONFIG_MTK_LCM) += lcm/
@@ -79,6 +81,7 @@ ifneq ($(wildcard $(srctree)/drivers/misc/mediatek/met_drv/),)
 obj-y += met_drv/
 endif
 obj-$(CONFIG_MTK_CCCI_DEVICES)	+=  ccci_util/
+obj-$(CONFIG_MTK_MIX_DEVICES) +=  mixdev/
 obj-$(CONFIG_MTK_NET_CCMNI) +=  ccmni/
 obj-$(CONFIG_MTK_ECCCI_DRIVER) +=  eccci/
 obj-$(CONFIG_TRUSTONIC_TEE_SUPPORT) += gcpu/
@@ -101,6 +104,7 @@ obj-$(CONFIG_MTK_GPU_SUPPORT) += gpu/
 obj-$(CONFIG_MTK_VPU_SUPPORT) += vpu/
 obj-$(CONFIG_MTK_MDLA_SUPPORT) += mdla/
 obj-$(CONFIG_MTK_CCU)	+= ccu/src/
+obj-$(CONFIG_MTK_EDMC_SUPPORT) += edmc/
 obj-$(CONFIG_MTK_RTC)	+= rtc/
 obj-y += mtprintk/
 obj-$(CONFIG_MTK_XO)	+= xo/
@@ -109,6 +113,7 @@ obj-$(CONFIG_MTK_RAM_CONSOLE) += ram_console/
 obj-$(CONFIG_MTK_DRAM_LOG_STORE)    += log_store/
 obj-$(CONFIG_MEDIATEK_SOLUTION)	+= aee/
 obj-$(CONFIG_MTK_MLOG) += mlog/
+obj-$(CONFIG_MTK_CACHE_CONTROL) += cache-auditor/
 obj-y += cameraisp/
 obj-$(CONFIG_MTK_CMDQ) += cmdq/
 obj-$(CONFIG_MTK_CMDQ_TAB) += cmdq/
@@ -140,6 +145,9 @@ obj-$(CONFIG_MTK_DFD_INTERNAL_DUMP) += dfd/
 obj-$(CONFIG_MTK_SYSTRACKER)   += systracker/
 obj-$(CONFIG_MEDIATEK_SOLUTION) += cmo/
 obj-$(CONFIG_MTK_VOW_SUPPORT)  += vow/
+ifneq (, (filter y,$(CONFIG_MTK_MD_DIRECT_TETHERING_SUPPORT) $(CONFIG_MTK_MDDP_WH_SUPPORT) $(CONFIG_MTK_MCIF_WSVC_SUPPORT)))
+obj-y += mddp/
+endif
 obj-y += timer/
 obj-$(CONFIG_NFC_CHIP_SUPPORT) += nfc/
 obj-$(CONFIG_MTK_DRAMC) += dramc/

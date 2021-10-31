@@ -573,8 +573,8 @@ static kal_uint16 imx376_table_write_cmos_sensor(
 		}
 #if MULTI_WRITE
 /* Write when remain buffer size is less than 3 bytes or reach end of data */
-		if ((I2C_BUFFER_LEN - tosend) < 3 ||
-			len == IDX || addr != addr_last) {
+		if ((I2C_BUFFER_LEN - tosend) < 3
+				|| IDX == len || addr != addr_last) {
 			iBurstWriteReg_multi(puSendCmd,
 						tosend,
 						imgsensor.i2c_write_id,
@@ -2090,249 +2090,307 @@ static kal_uint32 feature_control(MSDK_SENSOR_FEATURE_ENUM feature_id,
 		(MSDK_SENSOR_REG_INFO_STRUCT *) feature_para;
 
 	LOG_INF("feature_id = %d\n", feature_id);
-		switch (feature_id) {
-		case SENSOR_FEATURE_GET_PERIOD:
-			*feature_return_para_16++ = imgsensor.line_length;
-			*feature_return_para_16 = imgsensor.frame_length;
-			*feature_para_len = 4;
-			break;
-		case SENSOR_FEATURE_GET_PIXEL_CLOCK_FREQ:
-			LOG_INF(
-				"feature_Control imgsensor.pclk = %d,imgsensor.current_fps = %d\n",
-				imgsensor.pclk, imgsensor.current_fps);
-			*feature_return_para_32 = imgsensor.pclk;
-			*feature_para_len = 4;
-			break;
-		case SENSOR_FEATURE_SET_ESHUTTER:
-	    set_shutter(*feature_data);
-			break;
-		case SENSOR_FEATURE_SET_NIGHTMODE:
-		     /* night_mode((BOOL) *feature_data); */
-			break;
-		case SENSOR_FEATURE_SET_GAIN:
-	    set_gain((UINT16) *feature_data);
-			break;
-		case SENSOR_FEATURE_SET_FLASHLIGHT:
-			break;
-		case SENSOR_FEATURE_SET_ISP_MASTER_CLOCK_FREQ:
-			break;
-		case SENSOR_FEATURE_SET_REGISTER:
-			write_cmos_sensor(sensor_reg_data->RegAddr,
-				sensor_reg_data->RegData);
-			break;
-		case SENSOR_FEATURE_GET_REGISTER:
-			sensor_reg_data->RegData =
-				read_cmos_sensor(sensor_reg_data->RegAddr);
-			break;
-		case SENSOR_FEATURE_GET_LENS_DRIVER_ID:
-			/* get the lens driver ID from EEPROM
-			 * or just return LENS_DRIVER_ID_DO_NOT_CARE
-			 */
-			/* if EEPROM does not exist in camera module. */
-			*feature_return_para_32 = LENS_DRIVER_ID_DO_NOT_CARE;
-			*feature_para_len = 4;
-			break;
-		case SENSOR_FEATURE_SET_VIDEO_MODE:
-		    set_video_mode(*feature_data);
-			break;
-		case SENSOR_FEATURE_CHECK_SENSOR_ID:
-			get_imgsensor_id(feature_return_para_32);
-			break;
-		case SENSOR_FEATURE_SET_AUTO_FLICKER_MODE:
-			set_auto_flicker_mode((BOOL)*feature_data_16,
-				*(feature_data_16+1));
-			break;
-		case SENSOR_FEATURE_SET_MAX_FRAME_RATE_BY_SCENARIO:
-			set_max_framerate_by_scenario(
-				(enum MSDK_SCENARIO_ID_ENUM)*feature_data,
-				*(feature_data+1));
-			break;
-		case SENSOR_FEATURE_GET_DEFAULT_FRAME_RATE_BY_SCENARIO:
-		get_default_framerate_by_scenario(
-			(enum MSDK_SCENARIO_ID_ENUM) *(feature_data),
-			(MUINT32 *) (uintptr_t) (*(feature_data + 1)));
-			break;
-		case SENSOR_FEATURE_GET_PDAF_DATA:
-			LOG_INF("SENSOR_FEATURE_GET_PDAF_DATA\n");
-			/* read_3P3_eeprom((kal_uint16 )(*feature_data),
-			 * (char*)(uintptr_t)(*(feature_data+1)),
-			 * (kal_uint32)(*(feature_data+2)));
-			 */
-			break;
+	switch (feature_id) {
 
-		case SENSOR_FEATURE_SET_TEST_PATTERN:
-	    set_test_pattern_mode((BOOL)*feature_data);
+	case SENSOR_FEATURE_GET_PIXEL_CLOCK_FREQ_BY_SCENARIO:
+		switch (*feature_data) {
+		case MSDK_SCENARIO_ID_CAMERA_CAPTURE_JPEG:
+			*(MUINT32 *)(uintptr_t)(*(feature_data + 1))
+				= imgsensor_info.cap.pclk;
 			break;
-		case SENSOR_FEATURE_GET_TEST_PATTERN_CHECKSUM_VALUE:
-		/* for factory mode auto testing */
-			*feature_return_para_32 = imgsensor_info.checksum_value;
-			*feature_para_len = 4;
+		case MSDK_SCENARIO_ID_VIDEO_PREVIEW:
+			*(MUINT32 *)(uintptr_t)(*(feature_data + 1))
+				= imgsensor_info.normal_video.pclk;
 			break;
-		case SENSOR_FEATURE_SET_FRAMERATE:
-	    LOG_INF("current fps :%d\n", (UINT32)*feature_data_32);
-			spin_lock(&imgsensor_drv_lock);
-		     imgsensor.current_fps = *feature_data_32;
-			spin_unlock(&imgsensor_drv_lock);
+		case MSDK_SCENARIO_ID_HIGH_SPEED_VIDEO:
+			*(MUINT32 *)(uintptr_t)(*(feature_data + 1))
+				= imgsensor_info.hs_video.pclk;
 			break;
-		case SENSOR_FEATURE_SET_HDR:
-	    LOG_INF("ihdr enable :%d\n", *feature_data_32);
-			spin_lock(&imgsensor_drv_lock);
-			imgsensor.ihdr_mode = (UINT8)*feature_data_32;
-			spin_unlock(&imgsensor_drv_lock);
+		case MSDK_SCENARIO_ID_SLIM_VIDEO:
+			*(MUINT32 *)(uintptr_t)(*(feature_data + 1))
+				= imgsensor_info.slim_video.pclk;
 			break;
-		case SENSOR_FEATURE_GET_CROP_INFO:
-	    /* LOG_INF("SENSOR_FEATURE_GET_CROP_INFO scenarioId:%d\n",
-	     * (UINT32)*feature_data);
-	     */
-		wininfo =
-	(struct SENSOR_WINSIZE_INFO_STRUCT *) (uintptr_t) (*(feature_data + 1));
-
-			switch (*feature_data_32) {
-			case MSDK_SCENARIO_ID_CAMERA_CAPTURE_JPEG:
-				memcpy((void *)wininfo,
-				(void *)&imgsensor_winsize_info[1],
-				sizeof(struct SENSOR_WINSIZE_INFO_STRUCT));
-				break;
-			case MSDK_SCENARIO_ID_VIDEO_PREVIEW:
-				memcpy(
-				(void *)wininfo,
-				(void *)&imgsensor_winsize_info[2],
-				sizeof(struct SENSOR_WINSIZE_INFO_STRUCT));
-				break;
-			case MSDK_SCENARIO_ID_HIGH_SPEED_VIDEO:
-				memcpy(
-				(void *)wininfo,
-				(void *)&imgsensor_winsize_info[3],
-				sizeof(struct SENSOR_WINSIZE_INFO_STRUCT));
-				break;
-			case MSDK_SCENARIO_ID_SLIM_VIDEO:
-				memcpy(
-				(void *)wininfo,
-				(void *)&imgsensor_winsize_info[4],
-				sizeof(struct SENSOR_WINSIZE_INFO_STRUCT));
-				break;
-			case MSDK_SCENARIO_ID_CAMERA_PREVIEW:
-			default:
-				memcpy(
-				(void *)wininfo,
-				(void *)&imgsensor_winsize_info[0],
-				sizeof(struct SENSOR_WINSIZE_INFO_STRUCT));
-				break;
+		case MSDK_SCENARIO_ID_CAMERA_PREVIEW:
+		default:
+			*(MUINT32 *)(uintptr_t)(*(feature_data + 1))
+				= imgsensor_info.pre.pclk;
+			break;
 		}
-					break;
-		case SENSOR_FEATURE_GET_PDAF_INFO:
-	/* LOG_INF(
-	 * "SENSOR_FEATURE_GET_PDAF_INFO scenarioId:%d\n", *feature_data);
-	 */
-
-			PDAFinfo =
-			(struct SET_PD_BLOCK_INFO_T *) (uintptr_t)
-				(*(feature_data + 1));
-
-				switch (*feature_data) {
-				case MSDK_SCENARIO_ID_CAMERA_CAPTURE_JPEG:
-/* memcpy((void *)PDAFinfo,(void *)&imgsensor_pd_info,
- * sizeof(SET_PD_BLOCK_INFO_T));
- */
-					break;
-				case MSDK_SCENARIO_ID_VIDEO_PREVIEW:
-				case MSDK_SCENARIO_ID_HIGH_SPEED_VIDEO:
-				case MSDK_SCENARIO_ID_SLIM_VIDEO:
-				case MSDK_SCENARIO_ID_CAMERA_PREVIEW:
-				default:
-					break;
-			}
+		break;
+	case SENSOR_FEATURE_GET_PERIOD_BY_SCENARIO:
+		switch (*feature_data) {
+		case MSDK_SCENARIO_ID_CAMERA_CAPTURE_JPEG:
+			*(MUINT32 *)(uintptr_t)(*(feature_data + 1))
+			= (imgsensor_info.cap.framelength << 16)
+				+ imgsensor_info.cap.linelength;
 			break;
-		case SENSOR_FEATURE_GET_SENSOR_PDAF_CAPACITY:
-		/* LOG_INF(
-		 * "SENSOR_FEATURE_GET_SENSOR_PDAF_CAPACITY scenarioId:%d\n"
-		 * , *feature_data);
-		 */
-
-		/* PDAF capacity enable or not,
-		 * 2p8 only full size support PDAF
-		 */
-			switch (*feature_data) {
-			case MSDK_SCENARIO_ID_CAMERA_CAPTURE_JPEG:
-				*(MUINT32 *)(uintptr_t)(*(feature_data+1)) = 0;
-				break;
-			case MSDK_SCENARIO_ID_VIDEO_PREVIEW:
-				/* video & capture use same setting */
-				*(MUINT32 *)(uintptr_t)(*(feature_data+1)) = 0;
-				break;
-			case MSDK_SCENARIO_ID_HIGH_SPEED_VIDEO:
-				*(MUINT32 *)(uintptr_t)(*(feature_data+1)) = 0;
-				break;
-			case MSDK_SCENARIO_ID_SLIM_VIDEO:
-				*(MUINT32 *)(uintptr_t)(*(feature_data+1)) = 0;
-				break;
-			case MSDK_SCENARIO_ID_CAMERA_PREVIEW:
-				*(MUINT32 *)(uintptr_t)(*(feature_data+1)) = 0;
-				break;
-			default:
-				*(MUINT32 *)(uintptr_t)(*(feature_data+1)) = 0;
-				break;
-			}
+		case MSDK_SCENARIO_ID_VIDEO_PREVIEW:
+			*(MUINT32 *)(uintptr_t)(*(feature_data + 1))
+			= (imgsensor_info.normal_video.framelength << 16)
+				+ imgsensor_info.normal_video.linelength;
 			break;
-		case SENSOR_FEATURE_GET_MIPI_PIXEL_RATE:
-		{
-			kal_uint32 rate;
-
-			switch (*feature_data) {
-			case MSDK_SCENARIO_ID_CAMERA_CAPTURE_JPEG:
-				rate = imgsensor_info.cap.mipi_pixel_rate;
-				break;
-			case MSDK_SCENARIO_ID_VIDEO_PREVIEW:
-				rate =
-				  imgsensor_info.normal_video.mipi_pixel_rate;
-				break;
-			case MSDK_SCENARIO_ID_HIGH_SPEED_VIDEO:
-				rate = imgsensor_info.hs_video.mipi_pixel_rate;
-				break;
-			case MSDK_SCENARIO_ID_SLIM_VIDEO:
-				rate =
-				  imgsensor_info.slim_video.mipi_pixel_rate;
-				break;
-			case MSDK_SCENARIO_ID_CAMERA_PREVIEW:
-			default:
-				rate = imgsensor_info.pre.mipi_pixel_rate;
-				break;
-			}
-			*(MUINT32 *)(uintptr_t)(*(feature_data + 1)) = rate;
+		case MSDK_SCENARIO_ID_HIGH_SPEED_VIDEO:
+			*(MUINT32 *)(uintptr_t)(*(feature_data + 1))
+			= (imgsensor_info.hs_video.framelength << 16)
+				+ imgsensor_info.hs_video.linelength;
+			break;
+		case MSDK_SCENARIO_ID_SLIM_VIDEO:
+			*(MUINT32 *)(uintptr_t)(*(feature_data + 1))
+			= (imgsensor_info.slim_video.framelength << 16)
+				+ imgsensor_info.slim_video.linelength;
+			break;
+		case MSDK_SCENARIO_ID_CAMERA_PREVIEW:
+		default:
+			*(MUINT32 *)(uintptr_t)(*(feature_data + 1))
+			= (imgsensor_info.pre.framelength << 16)
+				+ imgsensor_info.pre.linelength;
+			break;
 		}
 		break;
 
-		case SENSOR_FEATURE_SET_IHDR_SHUTTER_GAIN:
+	case SENSOR_FEATURE_GET_PERIOD:
+		*feature_return_para_16++ = imgsensor.line_length;
+		*feature_return_para_16 = imgsensor.frame_length;
+		*feature_para_len = 4;
+		break;
+	case SENSOR_FEATURE_GET_PIXEL_CLOCK_FREQ:
+		LOG_INF(
+			"feature_Control imgsensor.pclk = %d,imgsensor.current_fps = %d\n",
+			imgsensor.pclk, imgsensor.current_fps);
+		*feature_return_para_32 = imgsensor.pclk;
+		*feature_para_len = 4;
+		break;
+	case SENSOR_FEATURE_SET_ESHUTTER:
+		set_shutter(*feature_data);
+		break;
+	case SENSOR_FEATURE_SET_NIGHTMODE:
+		/* night_mode((BOOL) *feature_data); */
+		break;
+	case SENSOR_FEATURE_SET_GAIN:
+		set_gain((UINT16) (*feature_data));
+		break;
+	case SENSOR_FEATURE_SET_FLASHLIGHT:
+		break;
+	case SENSOR_FEATURE_SET_ISP_MASTER_CLOCK_FREQ:
+		break;
+	case SENSOR_FEATURE_SET_REGISTER:
+		write_cmos_sensor(sensor_reg_data->RegAddr,
+			sensor_reg_data->RegData);
+		break;
+	case SENSOR_FEATURE_GET_REGISTER:
+		sensor_reg_data->RegData =
+			read_cmos_sensor(sensor_reg_data->RegAddr);
+		break;
+	case SENSOR_FEATURE_GET_LENS_DRIVER_ID:
+		/* get the lens driver ID from EEPROM
+		 * or just return LENS_DRIVER_ID_DO_NOT_CARE
+		 */
+		/* if EEPROM does not exist in camera module. */
+		*feature_return_para_32 = LENS_DRIVER_ID_DO_NOT_CARE;
+		*feature_para_len = 4;
+		break;
+	case SENSOR_FEATURE_SET_VIDEO_MODE:
+		set_video_mode(*feature_data);
+		break;
+	case SENSOR_FEATURE_CHECK_SENSOR_ID:
+		get_imgsensor_id(feature_return_para_32);
+		break;
+	case SENSOR_FEATURE_SET_AUTO_FLICKER_MODE:
+		set_auto_flicker_mode((BOOL)*feature_data_16,
+					*(feature_data_16+1));
+		break;
+	case SENSOR_FEATURE_SET_MAX_FRAME_RATE_BY_SCENARIO:
+		set_max_framerate_by_scenario(
+			(enum MSDK_SCENARIO_ID_ENUM)*feature_data,
+			*(feature_data+1));
+		break;
+	case SENSOR_FEATURE_GET_DEFAULT_FRAME_RATE_BY_SCENARIO:
+		get_default_framerate_by_scenario(
+			(enum MSDK_SCENARIO_ID_ENUM) *(feature_data),
+			(MUINT32 *) (uintptr_t) (*(feature_data + 1)));
+		break;
+	case SENSOR_FEATURE_GET_PDAF_DATA:
+		LOG_INF("SENSOR_FEATURE_GET_PDAF_DATA\n");
+		/* read_3P3_eeprom((kal_uint16 )(*feature_data),
+		 * (char*)(uintptr_t)(*(feature_data+1)),
+		 * (kal_uint32)(*(feature_data+2)));
+		 */
+		break;
+
+	case SENSOR_FEATURE_SET_TEST_PATTERN:
+		set_test_pattern_mode((BOOL)*feature_data);
+		break;
+	case SENSOR_FEATURE_GET_TEST_PATTERN_CHECKSUM_VALUE:
+		/* for factory mode auto testing */
+		*feature_return_para_32 = imgsensor_info.checksum_value;
+		*feature_para_len = 4;
+		break;
+	case SENSOR_FEATURE_SET_FRAMERATE:
+		LOG_INF("current fps :%d\n", (UINT32)*feature_data_32);
+		spin_lock(&imgsensor_drv_lock);
+		imgsensor.current_fps = *feature_data_32;
+		spin_unlock(&imgsensor_drv_lock);
+		break;
+	case SENSOR_FEATURE_SET_HDR:
+		LOG_INF("ihdr enable :%d\n", *feature_data_32);
+		spin_lock(&imgsensor_drv_lock);
+		imgsensor.ihdr_mode = (UINT8)*feature_data_32;
+		spin_unlock(&imgsensor_drv_lock);
+		break;
+	case SENSOR_FEATURE_GET_CROP_INFO:
+		/* LOG_INF("SENSOR_FEATURE_GET_CROP_INFO scenarioId:%d\n",
+		 * (UINT32)*feature_data);
+		 */
+		wininfo =
+	(struct SENSOR_WINSIZE_INFO_STRUCT *) (uintptr_t) (*(feature_data + 1));
+
+		switch (*feature_data_32) {
+		case MSDK_SCENARIO_ID_CAMERA_CAPTURE_JPEG:
+			memcpy((void *)wininfo,
+			(void *)&imgsensor_winsize_info[1],
+			sizeof(struct SENSOR_WINSIZE_INFO_STRUCT));
+			break;
+		case MSDK_SCENARIO_ID_VIDEO_PREVIEW:
+			memcpy(
+			(void *)wininfo,
+			(void *)&imgsensor_winsize_info[2],
+			sizeof(struct SENSOR_WINSIZE_INFO_STRUCT));
+			break;
+		case MSDK_SCENARIO_ID_HIGH_SPEED_VIDEO:
+			memcpy(
+			(void *)wininfo,
+			(void *)&imgsensor_winsize_info[3],
+			sizeof(struct SENSOR_WINSIZE_INFO_STRUCT));
+			break;
+		case MSDK_SCENARIO_ID_SLIM_VIDEO:
+			memcpy(
+			(void *)wininfo,
+			(void *)&imgsensor_winsize_info[4],
+			sizeof(struct SENSOR_WINSIZE_INFO_STRUCT));
+			break;
+		case MSDK_SCENARIO_ID_CAMERA_PREVIEW:
+		default:
+			memcpy(
+			(void *)wininfo,
+			(void *)&imgsensor_winsize_info[0],
+			sizeof(struct SENSOR_WINSIZE_INFO_STRUCT));
+			break;
+		}
+		break;
+	case SENSOR_FEATURE_GET_PDAF_INFO:
+		/* LOG_INF(
+		 * "SENSOR_FEATURE_GET_PDAF_INFO scenarioId:%d\n",
+		 * (*feature_data));
+		 */
+
+		PDAFinfo =
+		(struct SET_PD_BLOCK_INFO_T *) (uintptr_t)
+			(*(feature_data + 1));
+
+		switch (*feature_data) {
+		case MSDK_SCENARIO_ID_CAMERA_CAPTURE_JPEG:
+		/* memcpy((void *)PDAFinfo,(void *)&imgsensor_pd_info,
+		 * sizeof(SET_PD_BLOCK_INFO_T));
+		 */
+			break;
+		case MSDK_SCENARIO_ID_VIDEO_PREVIEW:
+		case MSDK_SCENARIO_ID_HIGH_SPEED_VIDEO:
+		case MSDK_SCENARIO_ID_SLIM_VIDEO:
+		case MSDK_SCENARIO_ID_CAMERA_PREVIEW:
+		default:
+			break;
+		}
+		break;
+	case SENSOR_FEATURE_GET_SENSOR_PDAF_CAPACITY:
+	/* LOG_INF(
+	 * "SENSOR_FEATURE_GET_SENSOR_PDAF_CAPACITY scenarioId:%d\n"
+	 * , *feature_data);
+	 */
+
+	/* PDAF capacity enable or not,
+	 * 2p8 only full size support PDAF
+	 */
+		switch (*feature_data) {
+		case MSDK_SCENARIO_ID_CAMERA_CAPTURE_JPEG:
+			*(MUINT32 *)(uintptr_t)(*(feature_data+1)) = 0;
+			break;
+		case MSDK_SCENARIO_ID_VIDEO_PREVIEW:
+			/* video & capture use same setting */
+			*(MUINT32 *)(uintptr_t)(*(feature_data+1)) = 0;
+			break;
+		case MSDK_SCENARIO_ID_HIGH_SPEED_VIDEO:
+			*(MUINT32 *)(uintptr_t)(*(feature_data+1)) = 0;
+			break;
+		case MSDK_SCENARIO_ID_SLIM_VIDEO:
+			*(MUINT32 *)(uintptr_t)(*(feature_data+1)) = 0;
+			break;
+		case MSDK_SCENARIO_ID_CAMERA_PREVIEW:
+			*(MUINT32 *)(uintptr_t)(*(feature_data+1)) = 0;
+			break;
+		default:
+			*(MUINT32 *)(uintptr_t)(*(feature_data+1)) = 0;
+			break;
+		}
+		break;
+	case SENSOR_FEATURE_GET_MIPI_PIXEL_RATE:
+	{
+		kal_uint32 rate;
+
+		switch (*feature_data) {
+		case MSDK_SCENARIO_ID_CAMERA_CAPTURE_JPEG:
+			rate = imgsensor_info.cap.mipi_pixel_rate;
+			break;
+		case MSDK_SCENARIO_ID_VIDEO_PREVIEW:
+			rate =
+			  imgsensor_info.normal_video.mipi_pixel_rate;
+			break;
+		case MSDK_SCENARIO_ID_HIGH_SPEED_VIDEO:
+			rate = imgsensor_info.hs_video.mipi_pixel_rate;
+			break;
+		case MSDK_SCENARIO_ID_SLIM_VIDEO:
+			rate =
+			  imgsensor_info.slim_video.mipi_pixel_rate;
+			break;
+		case MSDK_SCENARIO_ID_CAMERA_PREVIEW:
+		default:
+			rate = imgsensor_info.pre.mipi_pixel_rate;
+			break;
+		}
+		*(MUINT32 *)(uintptr_t)(*(feature_data + 1)) = rate;
+	}
+		break;
+
+	case SENSOR_FEATURE_SET_IHDR_SHUTTER_GAIN:
 	    LOG_INF("SENSOR_SET_SENSOR_IHDR LE=%d, SE=%d, Gain=%d\n",
 			(UINT16)*feature_data, (UINT16)*(feature_data+1),
 			(UINT16)*(feature_data+2));
 	    /* ihdr_write_shutter_gain((UINT16)*feature_data,
 	     *(UINT16)*(feature_data+1),(UINT16)*(feature_data+2));
 	     */
-			break;
-		case SENSOR_FEATURE_SET_AWB_GAIN:
-			break;
-		case SENSOR_FEATURE_SET_HDR_SHUTTER:
-		    LOG_INF("SENSOR_FEATURE_SET_HDR_SHUTTER LE=%d, SE=%d\n",
-			(UINT16)*feature_data, (UINT16)*(feature_data+1));
-			/* ihdr_write_shutter((UINT16)*feature_data,
-			 *(UINT16)*(feature_data+1));
-			 */
-			break;
-		case SENSOR_FEATURE_SET_STREAMING_SUSPEND:
-		    LOG_INF("SENSOR_FEATURE_SET_STREAMING_SUSPEND\n");
-		    streaming_control(KAL_FALSE);
-			break;
-		case SENSOR_FEATURE_SET_STREAMING_RESUME:
-		    LOG_INF(
-			"SENSOR_FEATURE_SET_STREAMING_RESUME, shutter:%llu\n",
-			*feature_data);
-			if (*feature_data != 0)
-				set_shutter(*feature_data);
-			streaming_control(KAL_TRUE);
-			break;
-		default:
-			break;
+		break;
+	case SENSOR_FEATURE_SET_AWB_GAIN:
+		break;
+	case SENSOR_FEATURE_SET_HDR_SHUTTER:
+	    LOG_INF("SENSOR_FEATURE_SET_HDR_SHUTTER LE=%d, SE=%d\n",
+		(UINT16)*feature_data, (UINT16)*(feature_data+1));
+		/* ihdr_write_shutter((UINT16)*feature_data,
+		 *(UINT16)*(feature_data+1));
+		 */
+		break;
+	case SENSOR_FEATURE_SET_STREAMING_SUSPEND:
+	    LOG_INF("SENSOR_FEATURE_SET_STREAMING_SUSPEND\n");
+	    streaming_control(KAL_FALSE);
+		break;
+	case SENSOR_FEATURE_SET_STREAMING_RESUME:
+	    LOG_INF(
+		"SENSOR_FEATURE_SET_STREAMING_RESUME, shutter:%llu\n",
+		*feature_data);
+		if (*feature_data != 0)
+			set_shutter(*feature_data);
+		streaming_control(KAL_TRUE);
+		break;
+	default:
+		break;
 	}
 
 	return ERROR_NONE;

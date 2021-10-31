@@ -48,7 +48,7 @@
 
 #ifdef CONFIG_MTK_DYNAMIC_FPS_FRAMEWORK_SUPPORT
 
-#ifdef CONFIG_MTK_FPSGO
+#if defined(CONFIG_MTK_FPSGO) || defined(CONFIG_MTK_FPSGO_V3)
 	#define FPS_COOLER_USE_DFPS				(0)
 #else
 	#define FPS_COOLER_USE_DFPS				(1)
@@ -168,6 +168,13 @@ enum {
 	GAS_CATEGORY_OTHERS,
 };
 #endif
+
+int __attribute__ ((weak))
+disp_mgr_get_session_info(struct disp_session_info *info)
+{
+	pr_notice("E_WF: %s doesn't exist\n", __func__);
+	return 0;
+}
 
 unsigned long  __attribute__ ((weak))
 ged_query_info(enum GED_INFO_TAG eType)

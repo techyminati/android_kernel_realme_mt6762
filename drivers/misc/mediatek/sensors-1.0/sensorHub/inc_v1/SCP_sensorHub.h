@@ -200,7 +200,13 @@ typedef struct {
 } geofence_event_t;
 
 struct sar_event_t {
-	int32_t state;
+	struct {
+		int32_t data[3];
+		int32_t x_bias;
+		int32_t y_bias;
+		int32_t z_bias;
+	};
+	uint32_t status;
 };
 
 typedef enum {
@@ -366,6 +372,10 @@ typedef enum {
 	CUST_ACTION_SHOW_ALSVAL,
 	CUST_ACTION_SET_FACTORY,
 	CUST_ACTION_GET_SENSOR_INFO,
+	#ifdef ODM_HQ_EDIT
+	/* GuJianchao@ODM_HQ.Sensors.SCP.BSP, 2018/12/28, add sensors func for msensor selftest */
+	CUST_ACTION_SELF_TEST,
+	#endif
 } CUST_ACTION;
 
 typedef struct {
@@ -428,26 +438,35 @@ typedef struct {
 
 struct mag_dev_info_t {
 	char libname[16];
-	int32_t layout;
-	int32_t deviceid;
+	int8_t layout;
+	int8_t deviceid;
 };
 
 struct sensorInfo_t {
-	union {
-		char name[16];
-		struct mag_dev_info_t mag_dev_info;
-	};
+	char name[16];
+	struct mag_dev_info_t mag_dev_info;
 };
 
 struct scp_sensor_hub_get_sensor_info {
 	CUST_ACTION action;
-	struct sensorInfo_t sensorInfo;
+	union {
+		int32_t int32_data[0];
+		struct sensorInfo_t sensorInfo;
+	};
 };
 
 enum {
 	USE_OUT_FACTORY_MODE = 0,
 	USE_IN_FACTORY_MODE
 };
+
+#ifdef ODM_HQ_EDIT
+/* GuJianchao@ODM_HQ.Sensors.SCP.BSP, 2018/12/28, add sensors func for msensor selftest */
+typedef struct {
+    CUST_ACTION action;
+    int32_t    int32_data;
+} SCP_SENSOR_HUB_SENSOR_SELFTEST;
+#endif
 
 typedef struct {
 	uint8_t sensorType;
@@ -468,6 +487,10 @@ typedef struct {
 		SCP_SENSOR_HUB_SHOW_ALSVAL showAlsval;
 		SCP_SENSOR_HUB_SET_FACTORY	setFactory;
 		struct scp_sensor_hub_get_sensor_info getInfo;
+		#ifdef ODM_HQ_EDIT
+		/* GuJianchao@ODM_HQ.Sensors.SCP.BSP, 2018/12/28, add sensors func for msensor selftest */
+		SCP_SENSOR_HUB_SENSOR_SELFTEST	selfTest;
+		#endif
 	};
 } SCP_SENSOR_HUB_SET_CUST_REQ;
 
@@ -480,6 +503,10 @@ typedef struct {
 		uint32_t custData[11];
 		SCP_SENSOR_HUB_GET_RAW_DATA getRawData;
 		struct scp_sensor_hub_get_sensor_info getInfo;
+		#ifdef ODM_HQ_EDIT
+		/* GuJianchao@ODM_HQ.Sensors.SCP.BSP, 2018/12/28, add sensors func for msensor selftest */
+		SCP_SENSOR_HUB_SENSOR_SELFTEST	selfTest;
+		#endif
 	};
 } SCP_SENSOR_HUB_SET_CUST_RSP;
 

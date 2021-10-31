@@ -84,6 +84,14 @@
 #include "ddp_irq.h"
 #include "ddp_rsz.h"
 
+#ifdef VENDOR_EDIT
+/*
+* Ling.Guo@PSW.MM.Display.LCD.Stability, 2018/11/12,
+* add display feature interface
+*/
+#include <mt-plat/mtk_boot_common.h>
+#endif /*VENDOR_EDIT*/
+
 #define DDP_OUTPUT_LAYID 4
 
 #if defined MTK_FB_SHARE_WDMA0_SUPPORT
@@ -761,7 +769,7 @@ static int input_config_preprocess(struct disp_frame_cfg_t *cfg)
 			dst_mva =
 				(unsigned long)(cfg->input_cfg[i].src_phy_addr);
 			if (!dst_mva) {
-				disp_sync_query_buf_info(
+				disp_sync_query_buf_info_nosync(
 				session_id, layer_id,
 				(unsigned int)cfg->input_cfg[i].next_buff_idx,
 				&dst_mva, &dst_size);
@@ -1521,6 +1529,13 @@ long mtk_disp_mgr_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		{
 			return _ioctl_get_display_caps(arg);
 		}
+#ifdef VENDOR_EDIT
+/* Xinqin.Yang@Cam.Tuning.Display, 2018/11/17, add for multi-lcms */
+	case DISP_IOCTL_GET_LCM_MODULE_INFO:
+		{
+			return _ioctl_get_lcm_module_info(arg);
+		}
+#endif /* VENDOR_EDIT */
 	case DISP_IOCTL_GET_VSYNC_FPS:
 		{
 			return _ioctl_get_vsync(arg);
@@ -1842,11 +1857,86 @@ static const struct file_operations mtk_disp_mgr_fops = {
 	.read = mtk_disp_mgr_read,
 };
 
+#ifdef VENDOR_EDIT
+/*
+* Ling.Guo@PSW.MM.Display.LCD.Machine, 2018/11/12,
+* add display feature interface
+*/
+unsigned long CABC_mode = 1;
+
+extern int primary_display_set_cabc_mode(unsigned int level);
+extern void disp_aal_set_dre_en(int enable);
+
+static ssize_t LCM_CABC_show(struct device *dev,
+                struct device_attribute *attr, char *buf)
+{
+    printk("%s CABC_mode=%ld\n", __func__, CABC_mode);
+    return sprintf(buf, "%ld\n", CABC_mode);
+}
+
+static ssize_t LCM_CABC_store(struct device *dev,
+        struct device_attribute *attr, const char *buf, size_t num)
+{
+    int ret = 0;
+
+    ret = kstrtoul(buf, 10, &CABC_mode);
+    if( CABC_mode > 3 ){
+        CABC_mode = 3;
+    }
+    printk("%s CABC_mode=%ld\n", __func__, CABC_mode);
+
+    /*
+    * add dre only use for camera
+    */
+    if (CABC_mode == 0) {
+        disp_aal_set_dre_en(1);
+        printk("%s enable dre\n", __func__);
+    } else {
+        disp_aal_set_dre_en(0);
+        printk("%s disable dre\n", __func__);
+    }
+
+    ret = primary_display_set_cabc_mode((unsigned int)CABC_mode);
+
+    return num;
+}
+
+static DEVICE_ATTR(LCM_CABC, 0644, LCM_CABC_show, LCM_CABC_store);
+
+unsigned long silence_mode = 0;
+static ssize_t silence_show(struct device *dev,
+						struct device_attribute *attr, char *buf)
+{
+	printk("%s silence_mode=%ld\n", __func__, silence_mode);
+	return sprintf(buf, "%ld\n", silence_mode);
+}
+
+static ssize_t silence_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t num)
+{
+	int ret;
+
+	ret = kstrtoul(buf, 10, &silence_mode);
+
+	printk("%s silence_mode=%ld\n", __func__, silence_mode);
+
+	return num;
+}
+static DEVICE_ATTR(silence, 0644, silence_show, silence_store);
+#endif /* VENDOR_EDIT */
+
 static int mtk_disp_mgr_probe(struct platform_device *pdev)
 {
 	struct class_device;
 	struct class_device *class_dev = NULL;
 	int ret;
+	#ifdef VENDOR_EDIT
+	/*
+	* Ling.Guo@PSW.MM.Display.LCD.Machine, 2018/11/12,
+	* add display feature interface
+	*/
+	struct device *dev =NULL;
+	#endif /* VENDOR_EDIT */
 
 	pr_debug("mtk_disp_mgr_probe called!\n");
 
@@ -1870,6 +1960,32 @@ static int mtk_disp_mgr_probe(struct platform_device *pdev)
 	    (struct class_device *)device_create(mtk_disp_mgr_class, NULL,
 	    mtk_disp_mgr_devno, NULL,
 						 DISP_SESSION_DEVICE);
+	#ifdef VENDOR_EDIT
+	/*
+	* Ling.Guo@PSW.MM.Display.LCD.Machine, 2018/11/12,
+	* add display feature interface
+	*/
+	dev =(struct device *) class_dev;
+	ret = device_create_file(dev, &dev_attr_LCM_CABC);
+	if (ret < 0)
+	{
+		printk("%s cabc device create file failed!\n", __func__);
+	}
+
+	if ((oppo_boot_mode == OPPO_SILENCE_BOOT)
+			||(get_boot_mode() == OPPO_SAU_BOOT))
+	{
+		printk("%s OPPO_SILENCE_BOOT set silence_mode to 1\n", __func__);
+		silence_mode = 1;
+	}
+
+	ret = device_create_file(dev, &dev_attr_silence);
+	if (ret < 0)
+	{
+		printk("%s device create file failed!\n", __func__);
+	}
+	#endif /*VENDOR_EDIT*/
+
 	disp_sync_init();
 
 	external_display_control_init();

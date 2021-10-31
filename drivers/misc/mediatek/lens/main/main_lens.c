@@ -40,6 +40,8 @@
 #include <linux/ktime.h>
 /* ------------------------- */
 
+#include <archcounter_timesync.h>
+
 #include "lens_info.h"
 #include "lens_list.h"
 
@@ -55,8 +57,8 @@
 #endif
 
 #if I2C_CONFIG_SETTING == 1
-#define LENS_I2C_BUSNUM 0
-#define I2C_REGISTER_ID 0x28
+#define LENS_I2C_BUSNUM 2
+#define I2C_REGISTER_ID            0x28
 #endif
 
 #define PLATFORM_DRIVER_NAME "lens_actuator_main_af"
@@ -85,11 +87,19 @@ static int g_EnableTimer;
 static int g_GetOisInfoCnt;
 static int g_OisPosIdx;
 static struct stAF_OisPosInfo OisPosInfo;
+
+#ifdef VENDOR_EDIT
+/*Henry.Chang@Camera.Driver add for P80_18151 AF_Lens 20181120*/
+extern struct regulator *regulator_get_regVCAMAF(void);
+#endif
+
 /* ------------------------- */
 
 static struct stAF_DrvList g_stAF_DrvList[MAX_NUM_OF_LENS] = {
-	{1, AFDRV_AK7371AF, AK7371AF_SetI2Cclient, AK7371AF_Ioctl,
-	 AK7371AF_Release, AK7371AF_GetFileName, NULL},
+	{1, AFDRV_AK7374AF, AK7374AF_SetI2Cclient, AK7374AF_Ioctl,
+	AK7374AF_Release, AK7374AF_GetFileName, NULL},
+	{1, AFDRV_LC898229AF, LC898229AF_SetI2Cclient, LC898229AF_Ioctl,
+	LC898229AF_Release, LC898229AF_GetFileName, NULL},
 	{1, AFDRV_BU6424AF, BU6424AF_SetI2Cclient, BU6424AF_Ioctl,
 	 BU6424AF_Release, BU6424AF_GetFileName, NULL},
 	{1, AFDRV_BU6429AF, BU6429AF_SetI2Cclient, BU6429AF_Ioctl,
@@ -131,10 +141,16 @@ static struct stAF_DrvList g_stAF_DrvList[MAX_NUM_OF_LENS] = {
 	 LC898217AFB_Release, LC898217AFB_GetFileName, NULL},
 	{1, AFDRV_LC898217AFC, LC898217AFC_SetI2Cclient, LC898217AFC_Ioctl,
 	 LC898217AFC_Release, LC898217AFC_GetFileName, NULL},
+	{1, AFDRV_LC898229AF, LC898229AF_SetI2Cclient, LC898229AF_Ioctl,
+	 LC898229AF_Release, LC898229AF_GetFileName, NULL},
 	{1, AFDRV_LC898122AF, LC898122AF_SetI2Cclient, LC898122AF_Ioctl,
 	 LC898122AF_Release, LC898122AF_GetFileName, NULL},
 	{1, AFDRV_WV511AAF, WV511AAF_SetI2Cclient, WV511AAF_Ioctl,
 	 WV511AAF_Release, WV511AAF_GetFileName, NULL},
+	{1, AFDRV_FP5510EAF, FP5510EAF_SetI2Cclient, FP5510EAF_Ioctl,
+	 FP5510EAF_Release, FP5510EAF_GetFileName, NULL},
+	{1, AFDRV_GT9762AF, GT9762AF_SetI2Cclient, GT9762AF_Ioctl,
+	 GT9762AF_Release, GT9762AF_GetFileName, NULL},
 };
 
 static struct stAF_DrvList *g_pstAF_CurDrv;
@@ -157,8 +173,7 @@ static int g_regVCAMAFEn;
 
 void AFRegulatorCtrl(int Stage)
 {
-	LOG_INF("AFIOC_S_SETPOWERCTRL regulator_put %p\n", regVCAMAF);
-
+	LOG_INF("AFIOC_S_SETPOWERCTRL regulator_put %p, %d\n", regVCAMAF, Stage);
 	if (Stage == 0) {
 		if (regVCAMAF == NULL) {
 			struct device_node *node, *kd_node;
@@ -170,7 +185,7 @@ void AFRegulatorCtrl(int Stage)
 			if (node) {
 				kd_node = lens_device->of_node;
 				lens_device->of_node = node;
-
+#if 0
 				#if defined(CONFIG_MACH_MT6765)
 				regVCAMAF =
 					regulator_get(lens_device, "vldo28");
@@ -180,28 +195,25 @@ void AFRegulatorCtrl(int Stage)
 				#endif
 
 				LOG_INF("[Init] regulator_get %p\n", regVCAMAF);
-
+#endif
 				lens_device->of_node = kd_node;
 			}
 		}
 	} else if (Stage == 1) {
+		#ifndef VENDOR_EDIT
+		/*Henry.Chang@Camera.Driver add for P80_18151 AF_Lens 20181120*/
+		if (regVCAMAF == NULL)
+			regVCAMAF = regulator_get_regVCAMAF();
+		#endif
+
 		if (regVCAMAF != NULL && g_regVCAMAFEn == 0) {
 			int Status = regulator_is_enabled(regVCAMAF);
-
-			LOG_INF("regulator_is_enabled %d\n", Status);
-
 			if (!Status) {
-				Status = regulator_set_voltage(
-					regVCAMAF, 2800000, 2800000);
-
-				LOG_INF("regulator_set_voltage %d\n", Status);
-
+				Status = regulator_set_voltage(regVCAMAF, 2800000, 2800000);
 				if (Status != 0)
 					LOG_INF("regulator_set_voltage fail\n");
 
 				Status = regulator_enable(regVCAMAF);
-				LOG_INF("regulator_enable %d\n", Status);
-
 				if (Status != 0)
 					LOG_INF("regulator_enable fail\n");
 
@@ -244,6 +256,16 @@ static int DrvPwrDn3 = 1;
 void AF_PowerDown(void)
 {
 	if (g_pstAF_I2Cclient != NULL) {
+#ifdef CONFIG_MTK_LENS_AK7374AF_SUPPORT
+	AK7374AF_SetI2Cclient(g_pstAF_I2Cclient, &g_AF_SpinLock, &g_s4AF_Opened);
+	AK7374AF_PowerDown();
+#endif
+
+#ifdef CONFIG_MTK_LENS_LC898229AF_SUPPORT
+	LC898229AF_SetI2Cclient(g_pstAF_I2Cclient, &g_AF_SpinLock, &g_s4AF_Opened);
+	LC898229AF_PowerDown();
+#endif
+
 #if defined(CONFIG_MACH_MT6739) || defined(CONFIG_MACH_MT6771) ||              \
 	defined(CONFIG_MACH_MT6775)
 		LC898217AF_PowerDown(g_pstAF_I2Cclient, &g_s4AF_Opened);
@@ -312,7 +334,7 @@ static long AF_SetMotorName(__user struct stAF_MotorName *pstMotorName)
 		if (g_stAF_DrvList[i].uEnable != 1)
 			break;
 
-		LOG_INF("Search Motor Name : %s\n", g_stAF_DrvList[i].uDrvName);
+		/* LOG_INF("Search : %s\n", g_stAF_DrvList[i].uDrvName); */
 		if (strcmp(stMotorName.uMotorName,
 			   g_stAF_DrvList[i].uDrvName) == 0) {
 			LOG_INF("Motor Name : %s\n", stMotorName.uMotorName);
@@ -323,6 +345,56 @@ static long AF_SetMotorName(__user struct stAF_MotorName *pstMotorName)
 			break;
 		}
 	}
+	return i4RetValue;
+}
+
+
+static long AF_ControlParam(unsigned long a_u4Param)
+{
+	long i4RetValue = -1;
+	__user struct stAF_CtrlCmd *pCtrlCmd =
+			(__user struct stAF_CtrlCmd *)a_u4Param;
+	struct stAF_CtrlCmd CtrlCmd;
+
+	if (copy_from_user(&CtrlCmd, pCtrlCmd, sizeof(struct stAF_CtrlCmd)))
+		LOG_INF("copy to user failed\n");
+
+	switch (CtrlCmd.i8CmdID) {
+	case CONVERT_CCU_TIMESTAMP:
+		{
+		long long monotonicTime = 0;
+		long long hwTickCnt     = 0;
+
+		hwTickCnt     = CtrlCmd.i8Param[0];
+		monotonicTime = archcounter_timesync_to_monotonic(hwTickCnt);
+		/* ns */
+		CtrlCmd.i8Param[0] = monotonicTime;
+
+		hwTickCnt     = CtrlCmd.i8Param[1];
+		monotonicTime = archcounter_timesync_to_monotonic(hwTickCnt);
+		/* ns */
+		CtrlCmd.i8Param[1] = monotonicTime;
+
+		#if 0
+		hwTickCnt     = arch_counter_get_cntvct(); /* Global timer */
+		monotonicTime = archcounter_timesync_to_monotonic(hwTickCnt);
+		do_div(monotonicTime, 1000); /* ns to us */
+		CtrlCmd.i8Param[1] = monotonicTime;
+		#endif
+		}
+		i4RetValue = 1;
+		break;
+	default:
+		i4RetValue = -1;
+		break;
+	}
+
+	if (i4RetValue > 0) {
+		if (copy_to_user(pCtrlCmd, &CtrlCmd,
+			sizeof(struct stAF_CtrlCmd)))
+			LOG_INF("copy to user failed\n");
+	}
+
 	return i4RetValue;
 }
 
@@ -482,6 +554,14 @@ static long AF_Ioctl(struct file *a_pstFile, unsigned int a_u4Command,
 					g_EnableTimer = 1;
 				}
 			}
+		}
+		break;
+
+	case AFIOC_X_CTRLPARA:
+		if (AF_ControlParam(a_u4Param) <= 0) {
+			if (g_pstAF_CurDrv)
+				i4RetValue = g_pstAF_CurDrv->pAF_Ioctl(
+					a_pstFile, a_u4Command, a_u4Param);
 		}
 		break;
 
@@ -761,11 +841,15 @@ static struct platform_driver g_stAF_Driver = {
 	.suspend = AF_suspend,
 	.resume = AF_resume,
 	.driver = {
-		.name = PLATFORM_DRIVER_NAME, .owner = THIS_MODULE,
+		.name = PLATFORM_DRIVER_NAME,
+		.owner = THIS_MODULE,
 	} };
 
 static struct platform_device g_stAF_device = {
-	.name = PLATFORM_DRIVER_NAME, .id = 0, .dev = {} };
+	.name = PLATFORM_DRIVER_NAME,
+	.id = 0,
+	.dev = {}
+};
 
 static int __init MAINAF_i2C_init(void)
 {

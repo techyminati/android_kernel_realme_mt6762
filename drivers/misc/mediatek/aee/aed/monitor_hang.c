@@ -39,6 +39,7 @@
 #include "aed.h"
 #include "../common/aee-common.h"
 #include "../mrdump/mrdump_mini.h"
+#include "../mrdump/mrdump_panic.h"
 #include <linux/pid.h>
 #ifdef CONFIG_MTK_BOOT
 #include <mt-plat/mtk_boot_common.h>
@@ -1610,10 +1611,11 @@ static void ShowStatus(int flag)
 #ifdef CONFIG_MTK_GPU_SUPPORT
 		mtk_dump_gpu_memory_usage();
 #endif
+#ifdef CONFIG_MTK_WQ_DEBUG
+		wq_debug_dump();
+#endif
 
 	}
-
-
 }
 
 static void reset_hang_info(void)

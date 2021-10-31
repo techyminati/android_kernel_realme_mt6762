@@ -36,7 +36,13 @@
 #define DISABLE_DLPT_FEATURE
 #endif /* defined(CONFIG_FPGA_EARLY_PORTING) || PT_DLPT_BRINGUP */
 
+#ifdef ODM_HQ_EDIT
+/*Hanxing.Duan@ODM.HQ.BSP.CHG.Basic 2019.03.01 modify UVLO to 2.75V*/
+#define POWER_UVLO_VOLT_LEVEL 2750
+#else /*ODM_HQ_EDIT*/
 #define POWER_UVLO_VOLT_LEVEL 2600
+#endif /*ODM_HQ_EDIT*/
+
 #define IMAX_MAX_VALUE 5500
 
 #define POWER_INT0_VOLT 3400

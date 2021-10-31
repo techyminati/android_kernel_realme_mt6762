@@ -215,7 +215,7 @@ static void mlog_reset_format(void)
 
 	len += hweight32(meminfo_filter);
 
-	if (vm_eventall == VMSTAT_EVENTALL_STOP)
+	if (vm_filter && vm_eventall == VMSTAT_EVENTALL_STOP)
 		len += hweight32(vm_filter);
 	else
 		len += NR_VM_EVENT_ITEMS;
@@ -311,7 +311,7 @@ static void mlog_reset_format(void)
 
 	spin_unlock_bh(&mlogbuf_lock);
 
-	pr_debug("[mlog] reset format %d\n", strfmt_len);
+	pr_debug("[mlog] reset format %d(%d)\n", strfmt_len, len);
 }
 
 int mlog_snprint_fmt(char *buf, size_t len)
@@ -937,6 +937,9 @@ static int _doread(char __user *buf, size_t len, unsigned int *start,
 	if (*start >= *end)
 		goto exit_dump;
 
+	/* strfmt_list is changed, just reset the index. */
+	if (*fmt_idx >= strfmt_len)
+		*fmt_idx = strfmt_proc;
 
 	if (*fmt_idx == 0)
 		v = '\n';

@@ -68,6 +68,8 @@ static struct ccu_sensor_info g_ccu_sensor_info_main  = {-1, NULL};
 static char g_ccu_sensor_name_main[SENSOR_NAME_MAX_LEN];
 static struct ccu_sensor_info g_ccu_sensor_info_main2  = {-1, NULL};
 static char g_ccu_sensor_name_main2[SENSOR_NAME_MAX_LEN];
+static struct ccu_sensor_info g_ccu_sensor_info_main3  = {-1, NULL};
+static char g_ccu_sensor_name_main3[SENSOR_NAME_MAX_LEN];
 static struct ccu_sensor_info g_ccu_sensor_info_sub  = {-1, NULL};
 static char g_ccu_sensor_name_sub[SENSOR_NAME_MAX_LEN];
 
@@ -1236,14 +1238,7 @@ int ccu_i2c_ctrl(unsigned char i2c_write_id, int transfer_len)
 
 int ccu_read_info_reg(int regNo)
 {
-	int *offset;
-
-	if ((regNo < 0) || (regNo > 32)) {
-		LOG_ERR("Invalid regNo : %d\n", regNo);
-		return 0;
-	}
-
-	offset = (int *)(uintptr_t)(ccu_base + 0x60 + regNo * 4);
+	int *offset = (int *)(uintptr_t)(ccu_base + 0x60 + regNo * 4);
 
 	LOG_DBG("ccu_read_info_reg: %x\n", (unsigned int)(*offset));
 
@@ -1296,6 +1291,21 @@ void ccu_set_sensor_info(int32_t sensorType,  struct ccu_sensor_info *info)
 			info->slave_addr);
 		LOG_DBG_MUST("ccu catch Main2 sensor name : %s\n",
 			g_ccu_sensor_info_main2.sensor_name_string);
+	} else if (sensorType == IMGSENSOR_SENSOR_IDX_MAIN3) {
+		/*Main2*/
+		g_ccu_sensor_info_main3.slave_addr  = info->slave_addr;
+		if (info->sensor_name_string != NULL) {
+			memcpy(g_ccu_sensor_name_main3,
+				info->sensor_name_string,
+				strlen(info->sensor_name_string)+1);
+			g_ccu_sensor_info_main3.sensor_name_string =
+				g_ccu_sensor_name_main3;
+		}
+		LOG_DBG_MUST(
+			"ccu catch Main3 sensor i2c slave address : 0x%x\n",
+			info->slave_addr);
+		LOG_DBG_MUST("ccu catch Main3 sensor name : %s\n",
+			g_ccu_sensor_info_main3.sensor_name_string);
 	} else {
 		LOG_DBG_MUST("ccu catch sensor i2c slave address fail!\n");
 	}
@@ -1306,6 +1316,7 @@ void ccu_get_sensor_i2c_slave_addr(int32_t *sensorI2cSlaveAddr)
 	sensorI2cSlaveAddr[0] = g_ccu_sensor_info_main.slave_addr;
 	sensorI2cSlaveAddr[1] = g_ccu_sensor_info_sub.slave_addr;
 	sensorI2cSlaveAddr[2] = g_ccu_sensor_info_main2.slave_addr;
+	sensorI2cSlaveAddr[3] = g_ccu_sensor_info_main3.slave_addr;
 }
 
 void ccu_get_sensor_name(char **sensor_name)
@@ -1313,6 +1324,7 @@ void ccu_get_sensor_name(char **sensor_name)
 	sensor_name[0] = g_ccu_sensor_info_main.sensor_name_string;
 	sensor_name[1] = g_ccu_sensor_info_sub.sensor_name_string;
 	sensor_name[2] = g_ccu_sensor_info_main2.sensor_name_string;
+	sensor_name[3] = g_ccu_sensor_info_main3.sensor_name_string;
 }
 
 int ccu_query_power_status(void)

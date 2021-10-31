@@ -80,9 +80,8 @@ static struct i2c_board_info _lcm_i2c_board_info __initdata = {
 };
 #else
 static const struct of_device_id _lcm_i2c_of_match[] = {
-	{
-	 .compatible = "mediatek,I2C_LCD_BIAS",
-	 },
+	{ .compatible = "mediatek,I2C_LCD_BIAS", },
+	{},
 };
 #endif
 
@@ -279,4 +278,155 @@ MODULE_AUTHOR("Joey Pan");
 MODULE_DESCRIPTION("MTK LCM I2C Driver");
 MODULE_LICENSE("GPL");
 #endif
+#endif
+/* Wangxianfei@ODM.Multimedia.LCD  2018/11/29 add for LCD bias iic bring up */
+#ifdef ODM_HQ_EDIT
+#include <linux/kernel.h>
+#include <linux/module.h>
+#include <linux/fs.h>
+#include <linux/slab.h>
+#include <linux/init.h>
+#include <linux/list.h>
+#include <linux/i2c.h>
+#include <linux/irq.h>
+/* #include <linux/jiffies.h> */
+/* #include <linux/delay.h> */
+#include <linux/uaccess.h>
+#include <linux/interrupt.h>
+#include <linux/io.h>
+#include <linux/platform_device.h>
+
+/*****************************************************************************
+ * Define
+ *****************************************************************************/
+
+
+#define I2C_I2C_LCD_BIAS_CHANNEL	3
+#define TPS_I2C_BUSNUM  I2C_I2C_LCD_BIAS_CHANNEL	/* for I2C channel 0 */
+#define I2C_ID_NAME "sm5109"
+#define TPS_ADDR 0x3E
+/*****************************************************************************
+ * GLobal Variable
+ *****************************************************************************/
+static struct i2c_board_info sm5109_board_info __initdata = {
+						I2C_BOARD_INFO(I2C_ID_NAME,
+								TPS_ADDR) };
+
+static struct i2c_client *sm5109_i2c_client;
+
+/*****************************************************************************
+ * Function Prototype
+ *****************************************************************************/
+static int sm5109_probe(struct i2c_client *client,
+			const struct i2c_device_id *id);
+static int sm5109_remove(struct i2c_client *client);
+/*****************************************************************************
+ * Data Structure
+ *****************************************************************************/
+
+struct sm5109_dev {
+	struct i2c_client *client;
+
+};
+
+static const struct i2c_device_id sm5109_id[] = {
+	{I2C_ID_NAME, 0},
+	{}
+};
+
+/* #if (LINUX_VERSION_CODE < KERNEL_VERSION(2,6,36)) */
+/* static struct i2c_client_address_data addr_data = { .forces = forces,}; */
+/* #endif */
+static struct i2c_driver sm5109_iic_driver = {
+	.id_table = sm5109_id,
+	.probe = sm5109_probe,
+	.remove = sm5109_remove,
+	/* .detect               = mt6605_detect, */
+	.driver = {
+		   .owner = THIS_MODULE,
+		   .name = "sm5109",
+		   },
+};
+
+static int sm5109_probe(struct i2c_client *client,
+						const struct i2c_device_id *id)
+{
+	printk("[LCM]sm5109_iic_probe\n");
+	printk("[LCM]TPS: info==>name=%s addr=0x%x\n",
+		client->name, client->addr);
+	sm5109_i2c_client = client;
+	return 0;
+}
+
+static int sm5109_remove(struct i2c_client *client)
+{
+	printk("[LCM]sm5109_remove\n");
+	sm5109_i2c_client = NULL;
+	i2c_unregister_device(client);
+	return 0;
+}
+
+int sm5109_write_bytes(unsigned char addr, unsigned char value)
+{
+	int ret = 0;
+	struct i2c_client *client = sm5109_i2c_client;
+	char write_data[2] = { 0 };
+
+	write_data[0] = addr;
+	write_data[1] = value;
+	ret = i2c_master_send(client, write_data, 2);
+	if (ret < 0)
+		printk("[LCM]sm5109 write data fail !!\n");
+	return ret;
+}
+
+int sm5109_read_bytes(u8 addr, void *data)
+{
+	struct i2c_client *client= sm5109_i2c_client;
+	size_t len=1;
+	struct i2c_msg xfer[] = {
+		{
+			.addr = client->addr,
+			.len = 1,
+			.buf = &addr,
+		},
+		{
+			.addr = client->addr,
+			.flags = I2C_M_RD,
+			.len = len,
+			.buf = data,
+		}
+	};
+	int ret;
+
+	ret = i2c_transfer(client->adapter, xfer, ARRAY_SIZE(xfer));
+	if (unlikely(ret != ARRAY_SIZE(xfer)))
+		return ret < 0 ? ret : -EIO;
+
+	return 0;
+}
+
+static int __init sm5109_iic_init(void)
+{
+	printk("[LCM]sm5109_iic_init\n");
+	i2c_register_board_info(TPS_I2C_BUSNUM, &sm5109_board_info, 1);
+	printk("[LCM]sm5109_iic_init2\n");
+	i2c_add_driver(&sm5109_iic_driver);
+	printk("[LCM]sm5109_iic_init success\n");
+	return 0;
+}
+
+static void __exit sm5109_iic_exit(void)
+{
+	printk("[LCM]sm5109_iic_exit\n");
+	i2c_del_driver(&sm5109_iic_driver);
+}
+
+
+module_init(sm5109_iic_init);
+module_exit(sm5109_iic_exit);
+
+MODULE_AUTHOR("xianfei Wang");
+MODULE_DESCRIPTION("SM5109 I2C Driver");
+MODULE_LICENSE("GPL");
 #endif

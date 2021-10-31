@@ -18,6 +18,10 @@
 static struct step_c_context *step_c_context_obj;
 static struct step_c_init_info *
 	step_counter_init_list[MAX_CHOOSE_STEP_C_NUM] = { 0 };
+#ifdef ODM_HQ_EDIT
+/* Huan.Zhang@ODM_HQ.BSP.Sensors.Config, 2018/12/30, report first data 0 for em mode */
+static uint32_t hq_step_counter_record;
+#endif
 
 static void step_c_work_func(struct work_struct *work)
 {
@@ -242,6 +246,14 @@ static int significant_real_enable(int enable)
 	return err;
 }
 
+#ifdef ODM_HQ_EDIT
+/* Huan.Zhang@ODM_HQ.BSP.Sensors.Config, 2018/12/30, report first data 0 for em mode */
+void hq_report_first_data(void)
+{
+	if(hq_step_counter_record == 0)
+		step_c_data_report(0, 2);
+}
+#endif
 
 static int step_c_real_enable(int enable)
 {
@@ -263,7 +275,10 @@ static int step_c_real_enable(int enable)
 						enable, err);
 				}
 			}
-
+			#ifdef ODM_HQ_EDIT
+			/* Huan.Zhang@ODM_HQ.BSP.Sensors.Config, 2018/12/30, report first data 0 for em mode */
+			hq_report_first_data();
+			#endif
 			pr_debug("step_c real enable\n");
 		}
 	}
@@ -950,7 +965,20 @@ int step_c_data_report(uint32_t new_counter, int status)
 		last_step_counter = new_counter;
 		err = sensor_input_event(step_c_context_obj->mdev.minor,
 			&event);
+	#ifdef ODM_HQ_EDIT
+	} else {
+	/* GuJianchao@ODM_HQ.Sensors.SCP.BSP.Sensors.Config,2018/12/27, add data report */
+		event.flush_action = DATA_ACTION;
+		event.handle = ID_STEP_COUNTER;
+		event.word[0] = last_step_counter;
+		err = sensor_input_event(step_c_context_obj->mdev.minor,
+			&event);
+	#endif
 	}
+	#ifdef ODM_HQ_EDIT
+	/* Huan.Zhang@ODM_HQ.BSP.Sensors.Config, 2018/12/30, report first data 0 for em mode */
+	hq_step_counter_record = last_step_counter;
+	#endif
 	return 0;
 }
 

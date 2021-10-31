@@ -360,6 +360,9 @@ s32 cmdqRecBackupUpdateSlot(struct cmdqRecStruct *handle,
 void cmdq_task_prepare(struct cmdqRecStruct *handle);
 void cmdq_task_unprepare(struct cmdqRecStruct *handle);
 
+s32 cmdq_task_update_property(struct cmdqRecStruct *handle,
+	void *prop_addr, u32 prop_size);
+
 /* Trigger CMDQ to execute the recorded commands
  * Parameter:
  *     handle: the command queue recorder handle
@@ -397,6 +400,7 @@ s32 cmdqRecFlushAsync(struct cmdqRecStruct *handle);
 
 s32 cmdq_task_flush_async_callback(struct cmdqRecStruct *handle,
 	CmdqAsyncFlushCB callback, u64 user_data);
+s32 cmdq_task_flush_async_destroy(struct cmdqRecStruct *handle);
 s32 cmdqRecFlushAsyncCallback(struct cmdqRecStruct *handle,
 	CmdqAsyncFlushCB callback, u64 user_data);
 

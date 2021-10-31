@@ -13,13 +13,21 @@
 
 #include <trace/events/sched.h>
 #include <trace/events/mtk_events.h>
+
 #ifdef CONFIG_MTK_DRAMC
 #include <mtk_dramc.h>
 #endif
+
 #include <linux/mm.h>
 #include <linux/swap.h>
 #include <mt-plat/mtk_blocktag.h>
 #include <helio-dvfsrc.h>
+
+#ifdef CONFIG_MTK_QOS_FRAMEWORK
+#include <mtk_qos_sram.h>
+#endif
+
+#include "perf_tracker.h"
 
 static int perf_tracker_on, perf_tracker_init;
 static u64 checked_timestamp;
@@ -65,7 +73,7 @@ unsigned int __attribute__((weak)) get_dram_data_rate(void)
 	return 0;
 }
 
-int __attribute__((weak)) dvfsrc_get_emi_bw(int type)
+u32 __attribute__((weak)) qos_sram_read(u32 offset)
 {
 	return 0;
 }
@@ -105,8 +113,8 @@ static inline bool hit_long_check(void)
 
 static inline u32 cpu_stall_ratio(int cpu)
 {
-#ifdef QOS_CM_STALL_RATIO
-	return dvfsrc_sram_read(QOS_CM_STALL_RATIO(cpu));
+#ifdef CM_STALL_RATIO_OFFSET
+	return qos_sram_read(CM_STALL_RATIO_OFFSET + cpu * 4);
 #else
 	return 0;
 #endif
@@ -126,6 +134,7 @@ void perf_tracker(u64 wallclock)
 	int i;
 	int stall[max_cpus] = {0};
 	long mm_available;
+	unsigned int sched_freq[3];
 
 	if (!perf_tracker_on || !perf_tracker_init)
 		return;
@@ -137,13 +146,21 @@ void perf_tracker(u64 wallclock)
 	dram_rate = get_dram_data_rate();
 
 	/* emi */
-	bw_c  = dvfsrc_get_emi_bw(QOS_EMI_BW_CPU);
-	bw_g  = dvfsrc_get_emi_bw(QOS_EMI_BW_GPU);
-	bw_mm = dvfsrc_get_emi_bw(QOS_EMI_BW_MM);
-	bw_total = dvfsrc_get_emi_bw(QOS_EMI_BW_TOTAL);
+	bw_c  = qos_sram_read(QOS_DEBUG_1);
+	bw_g  = qos_sram_read(QOS_DEBUG_2);
+	bw_mm = qos_sram_read(QOS_DEBUG_3);
+	bw_total = qos_sram_read(QOS_DEBUG_0);
+
+	/* sched: cpu freq */
+	sched_freq[0] = get_sched_cur_freq(0);
+	sched_freq[1] = get_sched_cur_freq(1);
+	sched_freq[2] = get_sched_cur_freq(2);
 
 	/* trace for short msg */
-	trace_perf_index_s(dram_rate, bw_c, bw_g, bw_mm, bw_total);
+	trace_perf_index_s(
+			sched_freq[0], sched_freq[1], sched_freq[2],
+			dram_rate, bw_c, bw_g, bw_mm, bw_total
+			);
 
 	if (!hit_long_check())
 		return;
@@ -245,4 +262,4 @@ static int init_perf_tracker(void)
 
 	return 0;
 }
-late_initcall_sync(init_perf_tracker)
+late_initcall_sync(init_perf_tracker);

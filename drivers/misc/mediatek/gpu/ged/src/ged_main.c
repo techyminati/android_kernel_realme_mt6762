@@ -45,6 +45,7 @@
 #include "ged_fdvfs.h"
 
 #include "ged_ge.h"
+#include "ged_gpu_tuner.h"
 
 #define GED_DRIVER_DEVICE_NAME "ged"
 #ifndef GED_BUFFER_LOG_DISABLE
@@ -110,9 +111,11 @@ static long ged_dispatch(struct file *pFile, GED_BRIDGE_PACKAGE *psBridgePackage
 	void *pvIn = NULL, *pvOut = NULL;
 	typedef int (ged_bridge_func_type)(void *, void *);
 	ged_bridge_func_type* pFunc = NULL;
+	uint32_t ui32FunctionID;
 
 	/* We make sure the both size are GE 0 integer.
 	 */
+	ui32FunctionID = psBridgePackageKM->ui32FunctionID;
 	if (psBridgePackageKM->i32InBufferSize >= 0 && psBridgePackageKM->i32OutBufferSize >= 0) {
 
 		if (psBridgePackageKM->i32InBufferSize > 0) {
@@ -124,7 +127,8 @@ static long ged_dispatch(struct file *pFile, GED_BRIDGE_PACKAGE *psBridgePackage
 			if (ged_copy_from_user(pvIn,
 						psBridgePackageKM->pvParamIn,
 						psBridgePackageKM->i32InBufferSize) != 0) {
-				GED_LOGE("ged_copy_from_user fail\n");
+				pr_err("%s: ged_copy_from_user fail\n"
+					, __func__);
 				goto dispatch_exit;
 			}
 		}
@@ -143,14 +147,16 @@ static long ged_dispatch(struct file *pFile, GED_BRIDGE_PACKAGE *psBridgePackage
 		pFunc = (ged_bridge_func_type *) func; \
 		if (sizeof(GED_BRIDGE_IN_##struct_name) > psBridgePackageKM->i32InBufferSize || \
 			sizeof(GED_BRIDGE_OUT_##struct_name) > psBridgePackageKM->i32OutBufferSize) { \
-			GED_LOGE("GED_BRIDGE_COMMAND_##cmd fail io_size:%d/%d, expected: %zu/%zu", \
+			pr_err("%s: GED_BRIDGE_COMMAND_##cmd fail " \
+				, __func__); \
+			pr_err("io_size:%d/%d, expected: %zu/%zu", \
 				psBridgePackageKM->i32InBufferSize, psBridgePackageKM->i32OutBufferSize, \
 				sizeof(GED_BRIDGE_IN_##struct_name), sizeof(GED_BRIDGE_OUT_##struct_name)); \
 			goto dispatch_exit; \
 		} } while (0)
 
 		/* we will change the below switch into a function pointer mapping table in the future */
-		switch (GED_GET_BRIDGE_ID(psBridgePackageKM->ui32FunctionID)) {
+		switch (GED_GET_BRIDGE_ID(ui32FunctionID)) {
 		case GED_BRIDGE_COMMAND_LOG_BUF_GET:
 			SET_FUNC_AND_CHECK(ged_bridge_log_buf_get, LOGBUFGET);
 			break;
@@ -181,6 +187,10 @@ static long ged_dispatch(struct file *pFile, GED_BRIDGE_PACKAGE *psBridgePackage
 		case GED_BRIDGE_COMMAND_EVENT_NOTIFY:
 			SET_FUNC_AND_CHECK(ged_bridge_event_notify, EVENT_NOTIFY);
 			break;
+		case GED_BRIDGE_COMMAND_GPU_HINT_TO_CPU:
+			SET_FUNC_AND_CHECK(ged_bridge_gpu_hint_to_cpu,
+				GPU_HINT_TO_CPU);
+			break;
 		case GED_BRIDGE_COMMAND_GE_ALLOC:
 			SET_FUNC_AND_CHECK(ged_bridge_ge_alloc, GE_ALLOC);
 			break;
@@ -197,8 +207,14 @@ static long ged_dispatch(struct file *pFile, GED_BRIDGE_PACKAGE *psBridgePackage
 			SET_FUNC_AND_CHECK(ged_bridge_gpu_timestamp,
 				GPU_TIMESTAMP);
 			break;
+		case GED_BRIDGE_COMMAND_GPU_TUNER_STATUS:
+			SET_FUNC_AND_CHECK(ged_bridge_gpu_tuner_status,
+				GPU_TUNER_STATUS);
+			break;
 		default:
-			GED_LOGE("Unknown Bridge ID: %u\n", GED_GET_BRIDGE_ID(psBridgePackageKM->ui32FunctionID));
+			pr_err("%s: Unknown Bridge ID: %u\n"
+				, __func__
+				, GED_GET_BRIDGE_ID(ui32FunctionID));
 			break;
 		}
 
@@ -230,7 +246,8 @@ static long ged_ioctl(struct file *pFile, unsigned int ioctlCmd, unsigned long a
 	psBridgePackageKM = &sBridgePackageKM;
 	if (0 != ged_copy_from_user(psBridgePackageKM, psBridgePackageUM, sizeof(GED_BRIDGE_PACKAGE)))
 	{
-		GED_LOGE("Fail to ged_copy_from_user\n");
+		pr_err("%s : Fail to ged_copy_from_user\n"
+			, __func__);
 		goto unlock_and_return;
 	}
 
@@ -353,6 +370,8 @@ static void ged_exit(void)
 
 	ged_ge_exit();
 
+	ged_gpu_tuner_exit();
+
 	remove_proc_entry(GED_DRIVER_DEVICE_NAME, NULL);
 
 }
@@ -464,6 +483,12 @@ static int ged_init(void)
 	ghLogBuf_ged_srv =  ged_log_buf_alloc(32, 32*80, GED_LOG_BUF_TYPE_RINGBUFFER, "ged_srv_Log", "ged_srv_debug");
 #endif
 #endif
+
+	err = ged_gpu_tuner_init();
+	if (unlikely(err != GED_OK)) {
+		GED_LOGE("ged: failed to init GPU Tuner!\n");
+		goto ERROR;
+	}
 
 	return 0;
 

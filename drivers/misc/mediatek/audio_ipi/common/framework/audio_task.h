@@ -29,6 +29,8 @@ enum {
 	TASK_SCENE_DEEPBUFFER           = 8,
 	TASK_SCENE_AUDPLAYBACK          = 9,
 	TASK_SCENE_CAPTURE_UL1          = 10,
+	TASK_SCENE_A2DP                 = 11,
+	TASK_SCENE_DATAPROVIDER         = 12,
 
 	/* control for driver */
 	TASK_SCENE_AUD_DAEMON,

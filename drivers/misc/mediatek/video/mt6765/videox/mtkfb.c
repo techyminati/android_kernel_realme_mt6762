@@ -1234,10 +1234,18 @@ static int mtkfb_ioctl(struct fb_info *info, unsigned int cmd,
 	}
 	case MTKFB_CAPTURE_FRAMEBUFFER:
 	{
+		unsigned long dst_pbuf = 0;
 		unsigned long *src_pbuf = 0;
 		unsigned int pixel_bpp = primary_display_get_bpp() / 8;
 		unsigned int fbsize = DISP_GetScreenHeight() *
 			DISP_GetScreenWidth() * pixel_bpp;
+
+		if (copy_from_user(&dst_pbuf, (void __user *)arg,
+				sizeof(dst_pbuf))) {
+			MTKFB_LOG("[FB]: copy_from_user failed! line:%d\n",
+				__LINE__);
+			return -EFAULT;
+		}
 
 		src_pbuf = vmalloc(fbsize);
 		if (!src_pbuf) {
@@ -1254,7 +1262,8 @@ static int mtkfb_ioctl(struct fb_info *info, unsigned int cmd,
 			DISPERR(
 			"primary display capture framebuffer failed!\n");
 		dprec_logger_done(DPREC_LOGGER_WDMA_DUMP, 0, 0);
-		if (copy_to_user((void __user *)arg, src_pbuf, fbsize)) {
+		if (copy_to_user((unsigned long *)dst_pbuf,
+				src_pbuf, fbsize)) {
 			MTKFB_LOG("[FB]: copy_to_user failed! line:%d\n",
 				__LINE__);
 			r = -EFAULT;
@@ -2459,6 +2468,27 @@ int pan_display_test(int frame_num, int bpp)
 	return 0;
 }
 
+#ifdef ODM_HQ_EDIT
+/*Duwenchao@ODM_HQ.BSP.Kernel.Driver 2019.01.04 meta mode display Green/Blue*/
+void meta_display(unsigned int color){
+	unsigned int j = 0;
+	unsigned long fb_va;
+	unsigned long fb_pa;
+	unsigned int *fb_start;
+	unsigned int fbsize = primary_display_get_height() * primary_display_get_width();
+
+	mtkfb_fbi->var.yoffset = 0;
+	disp_get_fb_address(&fb_va, &fb_pa);
+	fb_start = (unsigned int *)fb_va;
+
+	for (j = 0; j < fbsize; j++){
+		*fb_start = color;
+		fb_start++;
+	}
+	mtkfb_pan_display_impl(&mtkfb_fbi->var, mtkfb_fbi);
+	return;
+}
+#endif /*ODM_HQ_EDIT*/
 /* #define FPGA_DEBUG_PAN */
 #ifdef FPGA_DEBUG_PAN
 static struct task_struct *test_task;

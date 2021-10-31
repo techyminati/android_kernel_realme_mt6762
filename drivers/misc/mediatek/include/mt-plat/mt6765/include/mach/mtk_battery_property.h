@@ -19,10 +19,15 @@
 #define MTK_CHR_EXIST 1
 #define KEEP_100_PERCENT 1
 #define R_FG_VALUE	10				/* mOhm */
-#define EMBEDDED_SEL 0
+#define EMBEDDED_SEL 1
 #define PMIC_SHUTDOWN_CURRENT 20	/* 0.01 mA */
 #define FG_METER_RESISTANCE	75
+#ifdef ODM_HQ_EDIT
+/*Hanxing.Duan@ODM.HQ.BSP.CHG.Basin 2018.12.18 modify CAR TUNE VALUE*/
+#define CAR_TUNE_VALUE	98 /*1.00 */
+#else /*ODM_HQ_EDIT*/
 #define CAR_TUNE_VALUE	100 /*1.00 */
+#endif /*ODM_HQ_EDIT*/
 #define NO_BAT_TEMP_COMPENSATE 0
 /* NO_BAT_TEMP_COMPENSATE 1 = don't need bat_temper compensate, */
 /* but fg_meter_resistance still use for SWOCV */
@@ -58,6 +63,7 @@
 
 #define D0_SEL 0	/* not implement */
 #define AGING_SEL 0	/* not implement */
+#define DLPT_UI_REMAP_EN 0
 
 /* ADC resistor  */
 #define R_BAT_SENSE	4
@@ -150,7 +156,12 @@
 #define NAFG_RESISTANCE 1500
 
 #define PMIC_SHUTDOWN_SW_EN 1
+#ifndef ODM_HQ_EDIT
+/*duanhanxing@ODM.BSP.Charger 2018.12.17 modify gauge alg*/
 #define FORCE_VC_MODE 0	/* 0: mix, 1:Coulomb, 2:voltage */
+#else
+#define FORCE_VC_MODE 1
+#endif
 
 #define LOADING_1_EN 0
 #define LOADING_2_EN 2
@@ -184,7 +195,14 @@
 
 #define BATTERY_TMP_TO_DISABLE_GM30 -50
 #define BATTERY_TMP_TO_DISABLE_NAFG -35
+
+#ifndef VENDOR_EDIT
+/* Yichun.Chen  PSW.BSP.CHG  2018-12-24  add for charge */
 #define DEFAULT_BATTERY_TMP_WHEN_DISABLE_NAFG 25
+#else
+#define DEFAULT_BATTERY_TMP_WHEN_DISABLE_NAFG -30
+#endif
+
 #define BATTERY_TMP_TO_ENABLE_NAFG -20
 /* #define GM30_DISABLE_NAFG */
 

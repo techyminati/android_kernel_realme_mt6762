@@ -332,3 +332,141 @@ MODULE_DESCRIPTION("MediaTek LCM GPIO driver");
 MODULE_AUTHOR("Joey Pan<joey.pan@mediatek.com>");
 #endif
 #endif
+/* Wangxianfei@ODM.Multimedia.LCD  2018/11/29 add for LCD gpio bring up */
+#ifdef ODM_HQ_EDIT
+#include <linux/kernel.h>
+#include <linux/module.h>
+#include <linux/fs.h>
+#include <linux/slab.h>
+#include <linux/init.h>
+#include <linux/list.h>
+#include <linux/i2c.h>
+#include <linux/irq.h>
+#include <linux/uaccess.h>
+#include <linux/interrupt.h>
+#include <linux/io.h>
+#include <linux/platform_device.h>
+static struct pinctrl *lcmctrl;
+static struct pinctrl_state *lcd_pwr_high;
+static struct pinctrl_state *lcd_pwr_low;
+static struct pinctrl_state *lcd_pwr_n_high;
+static struct pinctrl_state *lcd_pwr_n_low;
+static struct pinctrl_state *lcd_rst_high;
+static struct pinctrl_state *lcd_rst_low;
+static int lcm_get_gpio(struct device *dev)
+{
+	int ret = 0;
+	lcmctrl = devm_pinctrl_get(dev);
+
+	if (IS_ERR(lcmctrl)) {
+		dev_err(dev, "Cannot find lcm pinctrl!");
+		ret = PTR_ERR(lcmctrl);
+	}
+	/*lcm power pin lookup */
+	lcd_pwr_high = pinctrl_lookup_state(lcmctrl, "state_bais_P_output1");
+
+	if (IS_ERR(lcd_pwr_high)) {
+		ret = PTR_ERR(lcd_pwr_high);
+		printk("%s : pinctrl err, lcd_pwr_high\n", __func__);
+	}
+
+	lcd_pwr_low = pinctrl_lookup_state(lcmctrl, "state_bais_P_output0");
+	if (IS_ERR(lcd_pwr_low)) {
+		ret = PTR_ERR(lcd_pwr_low);
+		printk("%s : pinctrl err, lcd_pwr_low\n", __func__);
+	}
+
+	lcd_rst_high = pinctrl_lookup_state(lcmctrl, "lcm_rst_high");
+	if (IS_ERR(lcd_rst_high)) {
+		ret = PTR_ERR(lcd_rst_high);
+		printk("%s : pinctrl err, lcd_rst_high\n", __func__);
+	}
+
+	lcd_rst_low = pinctrl_lookup_state(lcmctrl, "lcm_rst_low");
+	if (IS_ERR(lcd_rst_low)) {
+		ret = PTR_ERR(lcd_rst_low);
+		printk("%s : pinctrl err, lcd_rst_low\n", __func__);
+	}
+
+	lcd_pwr_n_high = pinctrl_lookup_state(lcmctrl, "state_bais_N_output1");
+	if (IS_ERR(lcd_pwr_n_high)) {
+		ret = PTR_ERR(lcd_pwr_n_high);
+		printk("%s : pinctrl err, lcd_pwr_n_high\n", __func__);
+	}
+
+	lcd_pwr_n_low = pinctrl_lookup_state(lcmctrl, "state_bais_N_output0");
+	if (IS_ERR(lcd_pwr_n_low)) {
+		ret = PTR_ERR(lcd_pwr_n_low);
+		printk("%s : pinctrl err, lcd_pwr_n_low\n", __func__);
+	}
+
+	return ret;
+}
+void lcm_set_pwr(int val)
+{
+	if (val == 0) {
+		pinctrl_select_state(lcmctrl, lcd_pwr_low);
+	} else {
+		pinctrl_select_state(lcmctrl, lcd_pwr_high);
+	}
+}
+
+void lcm_set_pwr_n(int val)
+{
+	if (val == 0 && (!IS_ERR(lcd_pwr_n_low)))  {
+		pinctrl_select_state(lcmctrl, lcd_pwr_n_low);
+	} else if (val == 1 && (!IS_ERR(lcd_pwr_n_high))) {
+		pinctrl_select_state(lcmctrl, lcd_pwr_n_high);
+	}
+}
+
+static int lcm_platform_probe(struct platform_device *pdev)
+{
+	struct device	*dev = &pdev->dev;
+	printk("enter %s \n", __func__);
+
+	lcm_get_gpio(dev);
+	return 0;
+}
+
+#ifdef CONFIG_OF
+static const struct of_device_id lcm_of_ids[] = {
+	{.compatible = "mediatek,lcm_mode",},
+	{}
+};
+MODULE_DEVICE_TABLE(of, lcm_of_ids);
+#endif
+
+static struct platform_driver lcm_driver = {
+	.probe = lcm_platform_probe,
+	.driver = {
+		   .name = "mtk_lcm",
+		   .owner = THIS_MODULE,
+#ifdef CONFIG_OF
+		   .of_match_table = lcm_of_ids,
+#endif
+		   },
+};
+
+static int __init lcm_init(void)
+{
+	pr_notice("LCM: Register lcm driver\n");
+	if (platform_driver_register(&lcm_driver)) {
+		printk("LCM: failed to register disp driver\n");
+		return -ENODEV;
+	}
+
+	return 0;
+}
+
+static void __exit lcm_exit(void)
+{
+	platform_driver_unregister(&lcm_driver);
+	pr_notice("LCM: Unregister lcm driver done\n");
+}
+late_initcall(lcm_init);
+module_exit(lcm_exit);
+MODULE_AUTHOR("xianfei Wang");
+MODULE_DESCRIPTION("Display subsystem Driver");
+MODULE_LICENSE("GPL");
+#endif//ODM_HQ_EDIT

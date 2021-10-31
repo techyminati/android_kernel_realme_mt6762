@@ -3378,7 +3378,9 @@ int DSI_Send_ROI(enum DISP_MODULE_ENUM module, void *handle, unsigned int x,
 
 static void lcm_set_reset_pin(UINT32 value)
 {
-#if 1
+#ifndef ODM_HQ_EDIT
+/* Xianfei.Wang@ODM.HQ.Multimedia.LCM 2019/1/15
+	control the lcm_rst by pinctrl*/
 	DSI_OUTREG32(NULL, DISP_REG_CONFIG_MMSYS_LCM_RST_B, value);
 #else
 #if !defined(CONFIG_MTK_LEGACY)

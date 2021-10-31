@@ -35,7 +35,7 @@ struct mtk_mcdi_buf {
 #define reset_mcdi_buf(mcdi) ((mcdi).p_idx = (mcdi).buf)
 #define get_mcdi_buf(mcdi)   ((mcdi).buf)
 #define mcdi_buf_append(mcdi, fmt, args...)           \
-	((mcdi).p_idx += snprintf((mcdi).p_idx,           \
+	((mcdi).p_idx += scnprintf((mcdi).p_idx,           \
 					LOG_BUF_LEN - strlen((mcdi).buf), \
 					fmt, ##args))
 

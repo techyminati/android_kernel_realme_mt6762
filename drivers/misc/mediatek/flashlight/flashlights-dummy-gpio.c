@@ -26,6 +26,8 @@
 #include <linux/list.h>
 #include <linux/delay.h>
 #include <linux/pinctrl/consumer.h>
+#include <linux/leds.h>
+#include <mt-plat/mtk_pwm.h>
 
 #include "flashlight-core.h"
 #include "flashlight-dt.h"
@@ -45,18 +47,29 @@
 /* define mutex and work queue */
 static DEFINE_MUTEX(dummy_mutex);
 static struct work_struct dummy_work;
-
+//zhaiyankun_hq@ODM_HQ.Multimedia.Camera.driver, 2018/12/7, add for bring up start
 /* define pinctrl */
 /* TODO: define pinctrl */
-#define DUMMY_PINCTRL_PIN_XXX 0
+#define DUMMY_PINCTRL_PIN_STROBE 0
+#define DUMMY_PINCTRL_PIN_TORCH 1
 #define DUMMY_PINCTRL_PINSTATE_LOW 0
 #define DUMMY_PINCTRL_PINSTATE_HIGH 1
-#define DUMMY_PINCTRL_STATE_XXX_HIGH "xxx_high"
-#define DUMMY_PINCTRL_STATE_XXX_LOW  "xxx_low"
-static struct pinctrl *dummy_pinctrl;
-static struct pinctrl_state *dummy_xxx_high;
-static struct pinctrl_state *dummy_xxx_low;
+#define DUMMY_PINCTRL_PINSTATE_PWM 2
 
+#define DUMMY_PINCTRL_STATE_STROBE_HIGH "strobe_on_gpio"
+#define DUMMY_PINCTRL_STATE_STROBE_LOW  "strobe_off_gpio"
+#define DUMMY_PINCTRL_STATE_TORCH_HIGH "torch_on_gpio"
+#define DUMMY_PINCTRL_STATE_TORCH_LOW  "torch_off_gpio"
+#define DUMMY_PINCTRL_STATE_TORCH_PWM  "torch_pwm_gpio"
+
+static struct pinctrl *dummy_pinctrl;
+static struct pinctrl_state *dummy_strobe_high;
+static struct pinctrl_state *dummy_strobe_low;
+static struct pinctrl_state *dummy_torch_high;
+static struct pinctrl_state *dummy_torch_low;
+static struct pinctrl_state *dummy_torch_pwm;
+
+static int global_level = 0;
 /* define usage count */
 static int use_count;
 
@@ -66,6 +79,28 @@ struct dummy_platform_data {
 	struct flashlight_device_id *dev_id;
 };
 
+#define TORCH_DUTY 3
+#define FLASHLIGHT_DUTY_NUM 31
+
+// duty_num: 31,  torch duty: 3
+int fl_current_31[FLASHLIGHT_DUTY_NUM] = {34,67,101,108,135,168,202,236,270,303,337,371,404,438,472,505,
+                                           539,573,607,640,674,708,741,775,809,842,876,910,944,977,1011};
+
+// freq_pwm = clk_src /clk_div /DATA_WIDTH
+// 52M / 16 /30 = 108.33 KHZ
+struct pwm_spec_config fl_pwm_config = {
+	.pwm_no = 0,
+	.mode = PWM_MODE_OLD,
+	.clk_div = CLK_DIV16,
+	.clk_src = PWM_CLK_OLD_MODE_BLOCK,
+	.pmic_pad = 0,
+	.PWM_MODE_OLD_REGS.IDLE_VALUE = 0,
+	.PWM_MODE_OLD_REGS.GUARD_VALUE = 0,
+	.PWM_MODE_OLD_REGS.GDURATION = 0,
+	.PWM_MODE_OLD_REGS.WAVE_NUM = 0,
+	.PWM_MODE_OLD_REGS.DATA_WIDTH = 30,	/* 30 level */
+	.PWM_MODE_OLD_REGS.THRESH = 15, /*default*/
+};
 
 /******************************************************************************
  * Pinctrl configuration
@@ -83,17 +118,37 @@ static int dummy_pinctrl_init(struct platform_device *pdev)
 	}
 
 	/* TODO: Flashlight XXX pin initialization */
-	dummy_xxx_high = pinctrl_lookup_state(
-			dummy_pinctrl, DUMMY_PINCTRL_STATE_XXX_HIGH);
-	if (IS_ERR(dummy_xxx_high)) {
-		pr_err("Failed to init (%s)\n", DUMMY_PINCTRL_STATE_XXX_HIGH);
-		ret = PTR_ERR(dummy_xxx_high);
+	dummy_strobe_high = pinctrl_lookup_state(
+			dummy_pinctrl, DUMMY_PINCTRL_STATE_STROBE_HIGH);
+	if (IS_ERR(dummy_strobe_high)) {
+		pr_err("Failed to init (%s)\n", DUMMY_PINCTRL_STATE_STROBE_HIGH);
+		ret = PTR_ERR(dummy_strobe_high);
 	}
-	dummy_xxx_low = pinctrl_lookup_state(
-			dummy_pinctrl, DUMMY_PINCTRL_STATE_XXX_LOW);
-	if (IS_ERR(dummy_xxx_low)) {
-		pr_err("Failed to init (%s)\n", DUMMY_PINCTRL_STATE_XXX_LOW);
-		ret = PTR_ERR(dummy_xxx_low);
+	dummy_strobe_low = pinctrl_lookup_state(
+			dummy_pinctrl, DUMMY_PINCTRL_STATE_STROBE_LOW);
+	if (IS_ERR(dummy_strobe_low)) {
+		pr_err("Failed to init (%s)\n", DUMMY_PINCTRL_STATE_STROBE_LOW);
+		ret = PTR_ERR(dummy_strobe_low);
+	}
+
+	dummy_torch_high = pinctrl_lookup_state(
+			dummy_pinctrl, DUMMY_PINCTRL_STATE_TORCH_HIGH);
+	if (IS_ERR(dummy_torch_high)) {
+		pr_err("Failed to init (%s)\n", DUMMY_PINCTRL_STATE_TORCH_HIGH);
+		ret = PTR_ERR(dummy_torch_high);
+	}
+	dummy_torch_low = pinctrl_lookup_state(
+			dummy_pinctrl, DUMMY_PINCTRL_STATE_TORCH_LOW);
+	if (IS_ERR(dummy_torch_low)) {
+		pr_err("Failed to init (%s)\n", DUMMY_PINCTRL_STATE_TORCH_LOW);
+		ret = PTR_ERR(dummy_torch_low);
+	}
+
+	dummy_torch_pwm = pinctrl_lookup_state(
+			dummy_pinctrl, DUMMY_PINCTRL_STATE_TORCH_PWM);
+	if (IS_ERR(dummy_torch_pwm)) {
+		pr_err("Failed to init (%s)\n", DUMMY_PINCTRL_STATE_TORCH_PWM);
+		ret = PTR_ERR(dummy_torch_pwm);
 	}
 
 	return ret;
@@ -109,15 +164,26 @@ static int dummy_pinctrl_set(int pin, int state)
 	}
 
 	switch (pin) {
-	case DUMMY_PINCTRL_PIN_XXX:
+	case DUMMY_PINCTRL_PIN_STROBE:
 		if (state == DUMMY_PINCTRL_PINSTATE_LOW &&
-				!IS_ERR(dummy_xxx_low))
-			pinctrl_select_state(dummy_pinctrl, dummy_xxx_low);
+				!IS_ERR(dummy_strobe_low))
+			pinctrl_select_state(dummy_pinctrl, dummy_strobe_low);
 		else if (state == DUMMY_PINCTRL_PINSTATE_HIGH &&
-				!IS_ERR(dummy_xxx_high))
-			pinctrl_select_state(dummy_pinctrl, dummy_xxx_high);
+				!IS_ERR(dummy_strobe_high))
+			pinctrl_select_state(dummy_pinctrl, dummy_strobe_high);
 		else
 			pr_err("set err, pin(%d) state(%d)\n", pin, state);
+		break;
+	case DUMMY_PINCTRL_PIN_TORCH:
+		if (state == DUMMY_PINCTRL_PINSTATE_LOW &&
+				!IS_ERR(dummy_torch_low))
+			pinctrl_select_state(dummy_pinctrl, dummy_torch_low);
+		else if (state == DUMMY_PINCTRL_PINSTATE_HIGH &&
+				!IS_ERR(dummy_torch_high))
+			pinctrl_select_state(dummy_pinctrl, dummy_torch_high);
+		else if(state == DUMMY_PINCTRL_PINSTATE_PWM &&
+				!IS_ERR(dummy_torch_pwm))
+			pinctrl_select_state(dummy_pinctrl,dummy_torch_pwm);
 		break;
 	default:
 		pr_err("set err, pin(%d) state(%d)\n", pin, state);
@@ -135,33 +201,50 @@ static int dummy_pinctrl_set(int pin, int state)
 /* flashlight enable function */
 static int dummy_enable(void)
 {
-	int pin = 0, state = 0;
+    int ret = 0;
+    pr_info("dummy_enable level = %d\n",global_level);
+    if(TORCH_DUTY == global_level) {
+        dummy_pinctrl_set(DUMMY_PINCTRL_PIN_STROBE, DUMMY_PINCTRL_PINSTATE_LOW);
+        dummy_pinctrl_set(DUMMY_PINCTRL_PIN_TORCH, DUMMY_PINCTRL_PINSTATE_HIGH);
+    }else {
+        fl_pwm_config.PWM_MODE_OLD_REGS.THRESH = global_level ;
 
-	/* TODO: wrap enable function */
+        if(global_level < TORCH_DUTY){
+            fl_pwm_config.PWM_MODE_OLD_REGS.THRESH = global_level + 1;
+        }
 
-	return dummy_pinctrl_set(pin, state);
+        ret = pwm_set_spec_config(&fl_pwm_config);
+        if(ret < 0){
+           pr_err("ERROR: pwm config fail!! ret = %d\n",ret);
+        }
+
+        dummy_pinctrl_set(DUMMY_PINCTRL_PIN_TORCH, DUMMY_PINCTRL_PINSTATE_PWM);
+        dummy_pinctrl_set(DUMMY_PINCTRL_PIN_STROBE, DUMMY_PINCTRL_PINSTATE_HIGH);
+    }
+
+    return ret;
 }
 
 /* flashlight disable function */
 static int dummy_disable(void)
 {
-	int pin = 0, state = 0;
-
-	/* TODO: wrap disable function */
-
-	return dummy_pinctrl_set(pin, state);
+    int ret = 0;
+    if(TORCH_DUTY != global_level){
+        mt_pwm_disable(fl_pwm_config.pwm_no,0);
+    }
+    dummy_pinctrl_set(DUMMY_PINCTRL_PIN_STROBE, DUMMY_PINCTRL_PINSTATE_LOW);
+    dummy_pinctrl_set(DUMMY_PINCTRL_PIN_TORCH, DUMMY_PINCTRL_PINSTATE_LOW);
+    global_level = 0;
+    return ret;
 }
 
 /* set flashlight level */
 static int dummy_set_level(int level)
 {
-	int pin = 0, state = 0;
-
-	/* TODO: wrap set level function */
-
-	return dummy_pinctrl_set(pin, state);
+	global_level = level;
+	return 0;
 }
-
+//zhaiyankun_hq@ODM_HQ.Multimedia.Camera.driver, 2018/12/7, add for bring up end
 /* flashlight init */
 static int dummy_init(void)
 {
@@ -217,19 +300,19 @@ static int dummy_ioctl(unsigned int cmd, unsigned long arg)
 
 	switch (cmd) {
 	case FLASH_IOC_SET_TIME_OUT_TIME_MS:
-		pr_debug("FLASH_IOC_SET_TIME_OUT_TIME_MS(%d): %d\n",
+		pr_info("FLASH_IOC_SET_TIME_OUT_TIME_MS(%d): %d\n",
 				channel, (int)fl_arg->arg);
 		dummy_timeout_ms = fl_arg->arg;
 		break;
 
 	case FLASH_IOC_SET_DUTY:
-		pr_debug("FLASH_IOC_SET_DUTY(%d): %d\n",
+		pr_info("FLASH_IOC_SET_DUTY(%d): %d\n",
 				channel, (int)fl_arg->arg);
 		dummy_set_level(fl_arg->arg);
 		break;
 
 	case FLASH_IOC_SET_ONOFF:
-		pr_debug("FLASH_IOC_SET_ONOFF(%d): %d\n",
+		pr_info("FLASH_IOC_SET_ONOFF(%d): %d\n",
 				channel, (int)fl_arg->arg);
 		if (fl_arg->arg == 1) {
 			if (dummy_timeout_ms) {
@@ -244,6 +327,23 @@ static int dummy_ioctl(unsigned int cmd, unsigned long arg)
 			dummy_disable();
 			hrtimer_cancel(&dummy_timer);
 		}
+		break;
+	case FLASH_IOC_GET_DUTY_NUMBER:
+		pr_info("FLASH_IOC_GET_DUTY_NUMBER(%d)\n", channel);
+		fl_arg->arg = FLASHLIGHT_DUTY_NUM;
+		break;
+	case FLASH_IOC_GET_MAX_TORCH_DUTY:
+		pr_info("FLASH_IOC_GET_MAX_TORCH_DUTY(%d)\n", channel);
+		fl_arg->arg = 3;
+		break;
+	case FLASH_IOC_GET_DUTY_CURRENT:
+		pr_info("FLASH_IOC_GET_DUTY_CURRENT(%d): %d\n",
+				channel, (int)fl_arg->arg);
+		fl_arg->arg = fl_current_31[fl_arg->arg];
+		break;
+	case FLASH_IOC_GET_HW_TIMEOUT:
+		pr_info("FLASH_IOC_GET_HW_TIMEOUT(%d)\n", channel);
+		fl_arg->arg = 600;
 		break;
 	default:
 		pr_info("No such command and arg(%d): (%d, %d)\n",
@@ -380,6 +480,49 @@ err_node_put:
 	return -EINVAL;
 }
 
+static void mtk_flashlight_brightness_set(struct led_classdev *led_cdev,
+		enum led_brightness value)
+{
+   int temp_level =  global_level;
+
+   if((value < 0) || (value > 30)){
+        pr_err("Error brightness value %d",value);
+        return ;
+   }
+   pr_info("mtk_flashlight_brightness_set value= %d",value);
+   if(0 == value){
+       dummy_disable();
+   }else{
+       global_level = value;
+       if(dummy_enable()< 0)
+         pr_err("error enable failed global_level=%d",global_level);
+   }
+   global_level = temp_level;
+}
+
+static enum led_brightness mtk_flashlight_brightness_get(struct led_classdev *led_cdev)
+{
+	return (global_level > 0) ? global_level : 0;
+}
+//for /sys/class/leds/flashlight
+static struct led_classdev flashlight_led = {
+       .name           = "flashlight",
+       .brightness_set = mtk_flashlight_brightness_set,
+       .brightness_get = mtk_flashlight_brightness_get,
+       .brightness     = LED_OFF,
+};
+int32_t mtk_flashlight_create_classdev(struct platform_device *pdev)
+{
+	int32_t rc = 0;
+
+	rc = led_classdev_register(&pdev->dev, &flashlight_led);
+	if (rc) {
+		pr_err("Failed to register  led dev. rc = %d\n", rc);
+		return rc;
+	}
+	return 0;
+}
+
 static int dummy_probe(struct platform_device *pdev)
 {
 	struct dummy_platform_data *pdata = dev_get_platdata(&pdev->dev);
@@ -437,7 +580,7 @@ static int dummy_probe(struct platform_device *pdev)
 			goto err;
 		}
 	}
-
+	mtk_flashlight_create_classdev(pdev);
 	pr_debug("Probe done.\n");
 
 	return 0;

@@ -37,6 +37,8 @@
 #include <linux/of_irq.h>
 #include <linux/of_fdt.h>
 #include <linux/ioport.h>
+#include <linux/debugfs.h>
+#include <linux/syscore_ops.h>
 #ifdef wakelock
 #include <linux/wakelock.h>
 #endif
@@ -51,21 +53,25 @@
 #include "adsp_excep.h"
 #include "adsp_dvfs.h"
 #include "adsp_clk.h"
+#include "adsp_service.h"
+#include "adsp_bus_monitor.h"
 
 #ifdef CONFIG_OF_RESERVED_MEM
 #include <linux/of_reserved_mem.h>
 //#include <mt-plat/mtk_memcfg.h>
 #include "adsp_reservedmem_define.h"
 #endif
-
+#include <mtk_sys_timer.h>
+#include <mtk_sys_timer_typedefs.h>
 #include <mtk_spm_sleep.h>
+#include <plat_debug_api.h>
 
 /* adsp awake timout count definition*/
 #define ADSP_AWAKE_TIMEOUT 5000
 /* adsp semaphore timout count definition*/
 #define SEMAPHORE_TIMEOUT 5000
 /* adsp ready timout definition*/
-#define ADSP_READY_TIMEOUT (20 * HZ) /* 20 seconds*/
+#define ADSP_READY_TIMEOUT (40 * HZ) /* 40 seconds*/
 #define ADSP_A_TIMER 0
 
 /* adsp ready status for notify*/
@@ -79,9 +85,16 @@ unsigned int adsp_expected_freq;
 unsigned int adsp_current_freq;
 
 #ifdef CFG_RECOVERY_SUPPORT
-unsigned int adsp_recovery_flag[ADSP_CORE_TOTAL];
-#define ADSP_A_RECOVERY_OK      0x44
+static unsigned int adsp_timeout_times;
+static struct workqueue_struct *adsp_reset_workqueue;
 #endif
+unsigned int adsp_recovery_flag[ADSP_CORE_TOTAL];
+atomic_t adsp_reset_status = ATOMIC_INIT(ADSP_RESET_STATUS_STOP);
+unsigned int adsp_reset_by_cmd;
+struct completion adsp_sys_reset_cp;
+struct adsp_work_struct adsp_sys_reset_work;
+struct wakeup_source adsp_reset_lock;
+DEFINE_SPINLOCK(adsp_reset_spinlock);
 
 phys_addr_t adsp_mem_base_phys;
 phys_addr_t adsp_mem_base_virt;
@@ -108,6 +121,7 @@ DEFINE_SPINLOCK(adsp_awake_spinlock);
 /* set flag after driver initial done */
 static bool driver_init_done;
 unsigned char **adsp_swap_buf;
+static struct dentry *adsp_debugfs;
 
 struct mem_desc_t {
 	u64 start;
@@ -251,13 +265,11 @@ void adsp_A_register_notify(struct notifier_block *nb)
 
 	pr_debug("[ADSP] register adsp A notify callback..\n");
 
-	if (is_adsp_ready(ADSP_A_ID))
+	if (is_adsp_ready(ADSP_A_ID) == 1)
 		nb->notifier_call(nb, ADSP_EVENT_READY, NULL);
 	mutex_unlock(&adsp_A_notify_mutex);
 }
 EXPORT_SYMBOL_GPL(adsp_A_register_notify);
-
-
 /*
  * unregister apps notification
  * NOTE: this function may be blocked
@@ -272,12 +284,38 @@ void adsp_A_unregister_notify(struct notifier_block *nb)
 }
 EXPORT_SYMBOL_GPL(adsp_A_unregister_notify);
 
+#ifdef CFG_RECOVERY_SUPPORT
+static int adsp_event_receive(struct notifier_block *this, unsigned long event,
+			    void *ptr)
+{
+	adsp_read_status_release(event);
+	return 0;
+}
+
+static struct notifier_block adsp_ready_notifier1 = {
+	.notifier_call = adsp_event_receive,
+	.priority = AUDIO_HAL_FEATURE_PRI,
+};
+#endif
 
 void adsp_schedule_work(struct adsp_work_struct *adsp_ws)
 {
 	queue_work(adsp_workqueue, &adsp_ws->work);
 }
 
+#ifdef CFG_RECOVERY_SUPPORT
+
+void adsp_extern_notify(enum ADSP_NOTIFY_EVENT notify_status)
+{
+	blocking_notifier_call_chain(&adsp_A_notifier_list,
+				     notify_status, NULL);
+}
+
+void adsp_schedule_reset_work(struct adsp_work_struct *adsp_ws)
+{
+	queue_work(adsp_reset_workqueue, &adsp_ws->work);
+}
+#endif
 /*
  * callback function for work struct
  * notify apps to start their tasks or generate an exception according to flag
@@ -291,25 +329,19 @@ static void adsp_A_notify_ws(struct work_struct *ws)
 						    work);
 	unsigned int adsp_notify_flag = sws->flags;
 
-	adsp_ready[ADSP_A_ID] = adsp_notify_flag;
 	if (adsp_notify_flag) {
-#if ADSP_DVFS_INIT_ENABLE
-		/* release pll clock after adsp ulposc calibration */
-		adsp_pll_mux_set(PLL_DISABLE);
-#endif
 #ifdef CFG_RECOVERY_SUPPORT
-		adsp_recovery_flag[ADSP_A_ID] = ADSP_A_RECOVERY_OK;
+		if (adsp_recovery_flag[ADSP_A_ID] == ADSP_RECOVERY_START) {
+			mutex_lock(&adsp_A_notify_mutex);
+			adsp_recovery_flag[ADSP_A_ID] = ADSP_RECOVERY_OK;
+			atomic_set(&adsp_reset_status, ADSP_RESET_STATUS_STOP);
+			adsp_extern_notify(ADSP_EVENT_READY);
+			adsp_deregister_feature(SYSTEM_FEATURE_ID);
+			mutex_unlock(&adsp_A_notify_mutex);
+			__pm_relax(&adsp_reset_lock);
+		}
 #endif
-		writel(0x0, ADSP_TO_SPM_REG); /* patch: clear SPM interrupt */
-		mutex_lock(&adsp_A_notify_mutex);
-		blocking_notifier_call_chain(&adsp_A_notifier_list,
-					     ADSP_EVENT_READY, NULL);
-		mutex_unlock(&adsp_A_notify_mutex);
 	}
-
-	if (!adsp_ready[ADSP_A_ID])
-		adsp_aed(EXCEP_RESET, ADSP_A_ID);
-
 }
 
 
@@ -326,22 +358,20 @@ static void adsp_timeout_ws(struct work_struct *ws)
 		container_of(ws, struct adsp_work_struct, work);
 	unsigned int adsp_timeout_id = sws->id;
 
+#ifdef CFG_RECOVERY_SUPPORT
+	if (adsp_timeout_times < 5) {
+		adsp_timeout_times++;
+		__pm_relax(&adsp_reset_lock);
+		pr_debug("%s(): cnt (%d)\n", __func__, adsp_timeout_times);
+		adsp_send_reset_wq(ADSP_RESET_TYPE_AWAKE,
+				   adsp_timeout_id);
+	} else
+		BUG_ON(1); /* reboot */
+#else
 	adsp_aed(EXCEP_BOOTUP, adsp_timeout_id);
-
-}
-
-/*
- * mark notify flag to 1 to notify apps to start their tasks
- */
-static void adsp_A_set_ready(void)
-{
-	pr_debug("%s()\n", __func__);
-#if ADSP_BOOT_TIME_OUT_MONITOR
-	del_timer(&adsp_ready_timer[ADSP_A_ID]);
 #endif
-	adsp_A_notify_work.flags = 1;
-	adsp_schedule_work(&adsp_A_notify_work);
 }
+
 
 void adsp_reset_ready(enum adsp_core_id id)
 {
@@ -375,9 +405,21 @@ void adsp_A_ready_ipi_handler(int id, void *data, unsigned int len)
 {
 	unsigned int adsp_image_size = *(unsigned int *)data;
 
-	if (!adsp_ready[ADSP_A_ID])
-		adsp_A_set_ready();
+	if (!adsp_ready[ADSP_A_ID]) {
+#if ADSP_BOOT_TIME_OUT_MONITOR
+		del_timer(&adsp_ready_timer[ADSP_A_ID]);
+#endif
+#ifdef CFG_RECOVERY_SUPPORT
+		adsp_timeout_times = 0;
+#endif
+		/* set adsp ready flag and clear SPM interrupt */
+		adsp_ready[ADSP_A_ID] = 1;
+		writel(0x0, ADSP_TO_SPM_REG);
 
+		/* send notification to work queue */
+		adsp_A_notify_work.flags = 1;
+		adsp_schedule_work(&adsp_A_notify_work);
+	}
 	/*verify adsp image size*/
 	if (adsp_image_size != ADSP_A_TCM_SIZE) {
 		pr_info("[ADSP]image size ERROR! AP=0x%x,ADSP=0x%x\n",
@@ -390,12 +432,17 @@ void adsp_A_ready_ipi_handler(int id, void *data, unsigned int len)
 /*
  * @return: 1 if adsp is ready for running tasks
  */
-unsigned int is_adsp_ready(enum adsp_core_id id)
+int is_adsp_ready(enum adsp_core_id id)
 {
-	if (adsp_ready[id])
-		return 1;
-	else
-		return 0;
+	if (id >= ADSP_CORE_TOTAL)
+		return -EINVAL;
+#ifdef CFG_RECOVERY_SUPPORT
+	/* exception */
+	if (atomic_read(&adsp_reset_status) == ADSP_RESET_STATUS_START ||
+	    adsp_recovery_flag[ADSP_A_ID] == ADSP_RECOVERY_START)
+		return -1;
+#endif
+	return adsp_ready[id];
 }
 EXPORT_SYMBOL_GPL(is_adsp_ready);
 
@@ -408,11 +455,9 @@ EXPORT_SYMBOL_GPL(is_adsp_ready);
 
 uint32_t adsp_power_on(uint32_t enable)
 {
-	pr_debug("+%s (%x)\n", __func__, enable);
 	if (enable) {
 		adsp_enable_clock();
 		adsp_sw_reset();
-
 		adsp_set_clock_freq(CLK_DEFAULT_INIT_CK);
 		adsp_A_send_spm_request(true);
 	} else {
@@ -423,97 +468,17 @@ uint32_t adsp_power_on(uint32_t enable)
 }
 EXPORT_SYMBOL_GPL(adsp_power_on);
 
-
-/*
- * reset adsp and create a timer waiting for adsp notify
- * notify apps to stop their tasks if needed
- * generate error if reset fail
- * NOTE: this function may be blocked
- * and should not be called in interrupt context
- * @param reset:    bit[0-3]=0 for adsp enable, =1 for reboot
- *                  bit[4-7]=0 for All, =1 for adsp_A, =2 for adsp_B
- * @return:         0 if success
- */
-int reset_adsp(void)
-{
-	unsigned int *reg;
-	int timeout = 50; /* max wait 1s */
-#if ADSP_BOOT_TIME_OUT_MONITOR
-	int i;
-#endif
-
-	reg = (unsigned int *)ADSP_A_REBOOT;
-#if ADSP_BOOT_TIME_OUT_MONITOR
-	for (i = 0; i < ADSP_CORE_TOTAL ; i++)
-		del_timer(&adsp_ready_timer[i]);
-#endif
-	/*adsp_logger_stop();*/
-	if ((*reg & 0x1) == 1) { /* reset A */
-		/*reset adsp A*/
-		mutex_lock(&adsp_A_notify_mutex);
-		blocking_notifier_call_chain(&adsp_A_notifier_list,
-					     ADSP_EVENT_STOP, NULL);
-		mutex_unlock(&adsp_A_notify_mutex);
-
-#if ADSP_DVFS_INIT_ENABLE
-		/* request pll clock before turn on adsp */
-		adsp_pll_mux_set(PLL_ENABLE);
-#endif
-		/* make sure adsp is in idle state */
-		while (--timeout) {
-			if (readl(ADSP_SLEEP_STATUS_REG) & ADSP_A_IS_WFI) {
-				/* reset - Liang: check in WFI do sw reset?*/
-				*(unsigned int *)reg = 0x0;
-				adsp_ready[ADSP_A_ID] = 0;
-				dsb(SY);
-				if (readl(ADSP_SLEEP_STATUS_REG) &
-					  ADSP_A_IS_RESET)
-					break;
-			}
-			msleep(20);
-			if (timeout == 0)
-				pr_debug("[ADSP] wait adsp A reset timeout\n");
-		}
-		pr_debug("[ADSP] wait adsp A reset timeout %d\n", timeout);
-		if (adsp_enable[ADSP_A_ID]) {
-			pr_debug("[ADSP] reset adsp A\n");
-			*(unsigned int *)reg = 0x1;
-			dsb(SY);
-#if ADSP_BOOT_TIME_OUT_MONITOR
-			init_timer(&adsp_ready_timer[ADSP_A_ID]);
-			adsp_ready_timer[ADSP_A_ID].expires =
-						jiffies + ADSP_READY_TIMEOUT;
-			adsp_ready_timer[ADSP_A_ID].function =
-						&adsp_wait_ready_timeout;
-			adsp_ready_timer[ADSP_A_ID].data =
-						(unsigned long)ADSP_A_TIMER;
-			add_timer(&adsp_ready_timer[ADSP_A_ID]);
-#endif
-		}
-	}
-
-	pr_debug("[ADSP] reset adsp done\n");
-
-	return 0;
-}
-
-
 /*
  * TODO: what should we do when hibernation ?
  */
 static int adsp_pm_event(struct notifier_block *notifier,
 			 unsigned long pm_event, void *unused)
 {
-	int retval;
 
 	switch (pm_event) {
 	case PM_POST_HIBERNATION:
 		pr_debug("[ADSP] %s ADSP reboot\n", __func__);
-		retval = reset_adsp();
-		if (retval < 0) {
-			retval = -EINVAL;
-			pr_debug("[ADSP] %s ADSP reboot Fail\n", __func__);
-		}
+		adsp_reset();
 		return NOTIFY_DONE;
 	}
 	return NOTIFY_OK;
@@ -529,10 +494,31 @@ static inline ssize_t adsp_A_status_show(struct device *kobj,
 					 struct device_attribute *attr,
 					 char *buf)
 {
-	if (adsp_ready[ADSP_A_ID])
-		return scnprintf(buf, PAGE_SIZE, "ADSP A is ready\n");
-	else
-		return scnprintf(buf, PAGE_SIZE, "ADSP A is not ready\n");
+	unsigned int status = 0;
+	char *adsp_status;
+
+	adsp_enable_dsp_clk(true);
+	status = readl(ADSP_A_SYS_STATUS);
+	adsp_enable_dsp_clk(false);
+
+	switch (status) {
+	case ADSP_STATUS_ACTIVE:
+		adsp_status = "ADSP A is active";
+		break;
+	case ADSP_STATUS_SUSPEND:
+		adsp_status = "ADSP A is suspend";
+		break;
+	case ADSP_STATUS_SLEEP:
+		adsp_status = "ADSP A is sleep";
+		break;
+	case ADSP_STATUS_RESET:
+		adsp_status = "ADSP A is reset";
+		break;
+	default:
+		adsp_status = "ADSP A in unknown status";
+		break;
+	}
+	return scnprintf(buf, PAGE_SIZE, "%s\n", adsp_status);
 }
 
 DEVICE_ATTR(adsp_A_status, 0444, adsp_A_status_show, NULL);
@@ -689,7 +675,11 @@ static inline ssize_t adsp_A_db_test_show(struct device *kobj,
 					  struct device_attribute *attr,
 					  char *buf)
 {
-	adsp_aed_reset(EXCEP_RUNTIME, ADSP_A_ID);
+#ifdef CFG_RECOVERY_SUPPORT
+	adsp_send_reset_wq(ADSP_RESET_TYPE_AWAKE, ADSP_A_ID);
+#else
+	adsp_aed(EXCEP_KERNEL, ADSP_A_ID);
+#endif
 	if (adsp_ready[ADSP_A_ID])
 		return scnprintf(buf, PAGE_SIZE, "dumping ADSP A db\n");
 	else
@@ -786,10 +776,18 @@ static inline ssize_t adsp_ipi_test_store(struct device *kobj,
 	if (kstrtoint(buf, 10, &value))
 		return -EINVAL;
 
+	adsp_register_feature(SYSTEM_FEATURE_ID);
+
 	if (adsp_ready[ADSP_A_ID]) {
 		ret = adsp_ipi_send(ADSP_IPI_TEST1, &value, sizeof(value),
 				    0, ADSP_A_ID);
 	}
+
+	/*
+	 * BE CAREFUL! this cmd shouldn't let adsp process over 1s.
+	 * Otherwise, you should register other feature before.
+	 */
+	adsp_deregister_feature(SYSTEM_FEATURE_ID);
 
 	return count;
 }
@@ -802,7 +800,6 @@ static inline ssize_t adsp_ipi_test_show(struct device *kobj,
 	enum adsp_ipi_status ret;
 
 	if (adsp_ready[ADSP_A_ID]) {
-		adsp_ipi_status_dump();
 		ret = adsp_ipi_send(ADSP_IPI_TEST1, &value, sizeof(value),
 				    0, ADSP_A_ID);
 		return scnprintf(buf, PAGE_SIZE, "ADSP ipi send ret=%d\n", ret);
@@ -844,7 +841,7 @@ static inline ssize_t adsp_suspend_cmd_store(struct device *kobj,
 	uint32_t id = 0;
 	char *temp = NULL, *token1 = NULL, *token2 = NULL;
 	char *pin = NULL;
-	char delim[] = " ,";
+	char delim[] = " ,\t\n";
 
 	temp = kstrdup(buf, GFP_KERNEL);
 	pin = temp;
@@ -872,22 +869,22 @@ DEVICE_ATTR(adsp_suspend_cmd, 0644, adsp_suspend_cmd_show,
  * trigger wdt manually
  * debug use
  */
-#define ENABLE_WDT  (1 << 31)
-#define DISABLE_WDT (0 << 31)
-
 void adsp_wdt_reset(enum adsp_core_id cpu_id, int interval)
 {
 	int wdt_reg = 0;
 
-	if (!is_adsp_ready(cpu_id))
-		return;
-
 	switch (cpu_id) {
 	case ADSP_A_ID:
-		writel(DISABLE_WDT, ADSP_A_WDT_REG);
-		writel(interval, ADSP_WDT_TRIGGER);
+		writel(WDT_DIS_BIT, ADSP_A_WDT_REG);
+		writel((interval&0xFFFFE), ADSP_WDT_TRIGGER);
+		udelay(90);
 		wdt_reg = readl(ADSP_A_WDT_REG);
-		writel((ENABLE_WDT | wdt_reg), ADSP_A_WDT_REG);
+		writel((WDT_EN_BIT | wdt_reg), ADSP_A_WDT_REG);
+		udelay(90);
+		wdt_reg = readl(ADSP_A_WDT_REG);
+		/* restart wdt*/
+		writel((wdt_reg & ~WDT_KICK_BIT), ADSP_A_WDT_REG);
+		writel((wdt_reg | WDT_KICK_BIT), ADSP_A_WDT_REG);
 		break;
 	default:
 		break;
@@ -904,6 +901,7 @@ static ssize_t adsp_wdt_trigger(struct device *dev,
 	if (kstrtoint(buf, 10, &interval))
 		return -EINVAL;
 	pr_debug("%s: %d\n", __func__, interval);
+	adsp_reset_by_cmd = 1;
 	adsp_wdt_reset(ADSP_A_ID, interval);
 	return count;
 }
@@ -918,32 +916,56 @@ static ssize_t adsp_recovery_flag_r(struct device *dev,
 {
 	return scnprintf(buf, PAGE_SIZE, "%d\n", adsp_recovery_flag[ADSP_A_ID]);
 }
-static ssize_t adsp_recovery_flag_w(struct device *dev,
-				    struct device_attribute *attr,
-				    const char *buf, size_t count)
-{
-	int ret, tmp;
 
-	ret = kstrtoint(buf, 10, &tmp);
-	if (kstrtoint(buf, 10, &tmp) < 0) {
-		pr_debug("adsp_recovery_flag error\n");
-		return count;
-	}
-	adsp_recovery_flag[ADSP_A_ID] = tmp;
-	return count;
-}
-
-DEVICE_ATTR(recovery_flag, 0600, adsp_recovery_flag_r,
-	    adsp_recovery_flag_w);
+DEVICE_ATTR(adsp_recovery_flag, 0444, adsp_recovery_flag_r, NULL);
 
 #endif
+
 
 static struct miscdevice adsp_device = {
 	.minor = MISC_DYNAMIC_MINOR,
 	.name = "adsp",
-	.fops = &adsp_A_log_file_ops
+	.fops = &adsp_A_drv_file_ops
 };
 
+static ssize_t adsp_debug_read(struct file *file, char __user *buf,
+			       size_t count, loff_t *pos)
+{
+	char *buffer = NULL; /* for reduce kernel stack */
+	int ret = 0;
+	size_t n = 0, max_size;
+
+	buffer = (void *)adsp_get_reserve_mem_virt(ADSP_A_DEBUG_DUMP_MEM_ID);
+	max_size = (size_t)adsp_get_reserve_mem_size(ADSP_A_DEBUG_DUMP_MEM_ID);
+
+	n = strnlen(buffer, max_size);
+
+	ret = simple_read_from_buffer(buf, count, pos, buffer, n);
+	return ret;
+}
+
+static ssize_t adsp_debug_write(struct file *filp, const char __user *buffer,
+				size_t count, loff_t *ppos)
+{
+	char buf[64];
+
+	if (copy_from_user(buf, buffer, min(count, sizeof(buf))))
+		return -EFAULT;
+
+	if (adsp_register_feature(SYSTEM_FEATURE_ID) == 0) {
+		adsp_ipi_send(ADSP_IPI_ADSP_TIMER, buf,
+			min(count, sizeof(buf)), 0, ADSP_A_ID);
+		adsp_deregister_feature(SYSTEM_FEATURE_ID);
+	}
+
+	return count;
+}
+
+static const struct file_operations adsp_debug_ops = {
+	.open = simple_open,
+	.read = adsp_debug_read,
+	.write = adsp_debug_write,
+};
 
 /*
  * register /dev and /sys files
@@ -1065,6 +1087,12 @@ static int create_files(void)
 	if (unlikely(ret != 0))
 		return ret;
 
+	/* create debug file */
+	adsp_debugfs = debugfs_create_file("audiodsp", S_IFREG | 0644, NULL,
+					(void *)&adsp_device, &adsp_debug_ops);
+	if (IS_ERR(adsp_debugfs))
+		return PTR_ERR(adsp_debugfs);
+
 #ifdef CFG_RECOVERY_SUPPORT
 	ret = device_create_file(adsp_device.this_device,
 				 &dev_attr_adsp_wdt_reset);
@@ -1072,7 +1100,7 @@ static int create_files(void)
 		return ret;
 
 	ret = device_create_file(adsp_device.this_device,
-				 &dev_attr_recovery_flag);
+				 &dev_attr_adsp_recovery_flag);
 	if (unlikely(ret != 0))
 		return ret;
 
@@ -1115,6 +1143,22 @@ static int create_files(void)
 	if (unlikely(ret != 0))
 		return ret;
 #endif
+	/* ADSP vcore/freq */
+	ret = device_create_file(adsp_device.this_device,
+				 &dev_attr_adsp_dvfs_force_opp);
+	if (unlikely(ret != 0))
+		return ret;
+
+	ret = device_create_file(adsp_device.this_device,
+				 &dev_attr_adsp_dvfs_set_freq);
+	if (unlikely(ret != 0))
+		return ret;
+
+	ret = device_create_file(adsp_device.this_device,
+				 &dev_attr_adsp_dvfs_trigger_latmon);
+	if (unlikely(ret != 0))
+		return ret;
+
 	return 0;
 }
 
@@ -1234,6 +1278,127 @@ void adsp_enable_dsp_clk(bool enable)
 		/* writel(0 << 27, DSP_CLK_ADDRESS); */
 	}
 }
+#ifdef CFG_RECOVERY_SUPPORT
+/*
+ * adsp_set_reset_status, set and return scp reset status function
+ * return value:
+ *   0: scp not in reset status
+ *   1: scp in reset status
+ */
+unsigned int adsp_set_reset_status(void)
+{
+	unsigned long spin_flags;
+
+	spin_lock_irqsave(&adsp_reset_spinlock, spin_flags);
+	if (atomic_read(&adsp_reset_status) == ADSP_RESET_STATUS_START) {
+		spin_unlock_irqrestore(&adsp_reset_spinlock, spin_flags);
+		return 1;
+	}
+	/* adsp not in reset status, set it and return*/
+	atomic_set(&adsp_reset_status, ADSP_RESET_STATUS_START);
+	spin_unlock_irqrestore(&adsp_reset_spinlock, spin_flags);
+	return 0;
+}
+
+/*
+ * callback function for work struct
+ * NOTE: this function may be blocked
+ * and should not be called in interrupt context
+ * @param ws:   work struct
+ */
+void adsp_sys_reset_ws(struct work_struct *ws)
+{
+	struct adsp_work_struct *sws = container_of(ws, struct adsp_work_struct,
+						    work);
+	unsigned int adsp_reset_type = sws->flags;
+	/* adsp cfg reg,*/
+	unsigned int adsp_reset_flag = 0;
+	/* make sure adsp is in idle state */
+	int timeout = 100; /* max wait 2s */
+
+	/*set adsp not ready*/
+	adsp_recovery_flag[ADSP_A_ID] = ADSP_RECOVERY_START;
+	adsp_ready[ADSP_A_ID] = 0;
+	pr_info("%s(): adsp_extern_notify\n", __func__);
+	adsp_register_feature(SYSTEM_FEATURE_ID);
+	adsp_extern_notify(ADSP_EVENT_STOP);
+
+	/* wake lock AP*/
+	__pm_stay_awake(&adsp_reset_lock);
+
+	/*workqueue for adsp ee, adsp reset by cmd will not trigger adsp ee*/
+
+	if (adsp_reset_by_cmd == 0) {
+		pr_info("%s(): adsp_aed_reset\n", __func__);
+		if (adsp_reset_type == ADSP_RESET_TYPE_AWAKE)
+			adsp_aed_reset(EXCEP_KERNEL, ADSP_A_ID);
+		else
+			adsp_aed_reset(EXCEP_RUNTIME, ADSP_A_ID);
+
+		/*wait adsp ee finished in 10s*/
+		if (wait_for_completion_interruptible_timeout(&adsp_sys_reset_cp
+						, jiffies_to_msecs(10000)) == 0)
+			pr_info("%s: adsp ee time out\n", __func__);
+	}
+
+	/* enable clock for access ADSP Reg*/
+	adsp_enable_dsp_clk(true);
+	/* dump bus status if has bus hang*/
+	if (is_adsp_bus_monitor_alert()) {
+#ifdef CONFIG_MTK_EMI
+		dump_emi_outstanding(); /* check infra, dump all info*/
+		lastbus_timeout_dump(); /* check infra/peri, dump both info */
+#endif
+		adsp_bus_monitor_dump();
+	}
+
+	if (adsp_reset_type == ADSP_RESET_TYPE_AWAKE) {
+		/* reset type awake fail */
+		pr_info("%s(): adsp awake fail,trigger wdt by AP\n", __func__);
+		adsp_deregister_feature(SYSTEM_FEATURE_ID);
+		atomic_set(&adsp_reset_status, ADSP_RESET_STATUS_STOP);
+		adsp_wdt_reset(ADSP_A_ID, 10);
+		goto END;
+	}
+	/* make sure adsp is in idle state */
+	while (--timeout) {
+		if (readl(ADSP_SLEEP_STATUS_REG) & ADSP_A_IS_WFI) {
+			adsp_reset();
+			if (readl(ADSP_SLEEP_STATUS_REG) &
+			    ADSP_A_IS_ACTIVE) {
+				adsp_reset_flag = 1;
+				break;
+			}
+		}
+		msleep(20);
+	}
+
+	if (!adsp_reset_flag) {
+		if (readl(ADSP_DBG_PEND_CNT))
+			pr_info("%s(): failed, bypass and wait\n", __func__);
+		else
+			adsp_reset();
+	}
+#if ADSP_BOOT_TIME_OUT_MONITOR
+	if (timer_pending(&adsp_ready_timer[ADSP_A_ID]) != 1) {
+		adsp_ready_timer[ADSP_A_ID].expires =
+					jiffies + ADSP_READY_TIMEOUT;
+		add_timer(&adsp_ready_timer[ADSP_A_ID]);
+	}
+#endif
+END:
+	adsp_reset_by_cmd = 0;
+	adsp_enable_dsp_clk(false);
+}
+/*
+ */
+void adsp_send_reset_wq(enum ADSP_RESET_TYPE type, enum adsp_core_id core_id)
+{
+	adsp_sys_reset_work.flags = (unsigned int) type;
+	adsp_sys_reset_work.id = core_id;
+	adsp_schedule_reset_work(&adsp_sys_reset_work);
+}
+#endif
 
 //Liang: dvfs to check ADSP PLL?
 int adsp_check_resource(void)
@@ -1265,18 +1430,72 @@ int adsp_check_resource(void)
 	return adsp_resource_status;
 }
 
+void adsp_recovery_init(void)
+{
+#ifdef CFG_RECOVERY_SUPPORT
+	/*create wq for scp reset*/
+	adsp_reset_workqueue = create_singlethread_workqueue("ADSP_RESET_WQ");
+	/*init reset work*/
+	INIT_WORK(&adsp_sys_reset_work.work, adsp_sys_reset_ws);
+	/*init completion for identify adsp aed finished*/
+	init_completion(&adsp_sys_reset_cp);
+	wakeup_source_init(&adsp_reset_lock, "adsp reset wakelock");
+	/* init reset by cmd flag*/
+	adsp_reset_by_cmd = 0;
+#endif
+}
 static int adsp_system_sleep_suspend(struct device *dev)
 {
-	if (!is_adsp_ready(ADSP_A_ID) && !adsp_feature_is_active())
-		spm_adsp_mem_protect();
+	mutex_lock(&adsp_suspend_mutex);
+	if ((is_adsp_ready(ADSP_A_ID) == 1) || adsp_feature_is_active()) {
+		sys_timer_timesync_sync_adsp(SYS_TIMER_TIMESYNC_FLAG_FREEZE);
+		adsp_awake_unlock_adsppll(ADSP_A_ID, 1);
+	}
+	mutex_unlock(&adsp_suspend_mutex);
 	return 0;
 }
 
 static int adsp_system_sleep_resume(struct device *dev)
 {
-	if (!is_adsp_ready(ADSP_A_ID) && !adsp_feature_is_active())
-		spm_adsp_mem_unprotect();
+	mutex_lock(&adsp_suspend_mutex);
+	if ((is_adsp_ready(ADSP_A_ID) == 1) || adsp_feature_is_active()) {
+		/*wake adsp up*/
+		adsp_awake_unlock_adsppll(ADSP_A_ID, 0);
+		sys_timer_timesync_sync_adsp(SYS_TIMER_TIMESYNC_FLAG_UNFREEZE);
+	}
+	mutex_unlock(&adsp_suspend_mutex);
+
 	return 0;
+}
+
+static int adsp_syscore_suspend(void)
+{
+	if ((is_adsp_ready(ADSP_A_ID) != 1) && !adsp_feature_is_active()) {
+		adsp_bus_sleep_protect(true);
+		spm_adsp_mem_protect();
+	}
+	return 0;
+}
+
+static void adsp_syscore_resume(void)
+{
+	if ((is_adsp_ready(ADSP_A_ID) != 1) && !adsp_feature_is_active()) {
+		spm_adsp_mem_unprotect();
+		adsp_bus_sleep_protect(false);
+		/* release adsp sw_reset,
+		 * let ap is able to write adsp cfg/dtcm
+		 * no matter adsp is suspend.
+		 */
+		adsp_enable_clock();
+		writel((ADSP_A_SW_RSTN | ADSP_A_SW_DBG_RSTN), ADSP_A_REBOOT);
+		udelay(1);
+		writel(0, ADSP_A_REBOOT);
+		sys_timer_timesync_sync_adsp(SYS_TIMER_TIMESYNC_FLAG_UNFREEZE);
+#if ADSP_BUS_MONITOR_INIT_ENABLE
+		adsp_bus_monitor_init(); /* reinit bus monitor hw */
+#endif
+		adsp_disable_clock();
+	}
 }
 
 static int adsp_device_probe(struct platform_device *pdev)
@@ -1315,7 +1534,6 @@ static int adsp_device_probe(struct platform_device *pdev)
 		return -1;
 	}
 	adspreg.d_tcmsize = (unsigned int)resource_size(res);
-
 	adspreg.total_tcmsize = (unsigned int)adspreg.i_tcmsize +
 				adspreg.d_tcmsize;
 	pr_debug("[ADSP] iram base=0x%p %x dram base=0x%p %x, %x\n",
@@ -1324,10 +1542,11 @@ static int adsp_device_probe(struct platform_device *pdev)
 	pr_debug("[ADSP] ipc =0x%p ostimer =0x%p ,mpu =0x%p\n",
 		 ADSP_A_IPC_BUFFER, ADSP_A_OSTIMER_BUFFER,
 		 ADSP_A_MPUINFO_BUFFER);
+	adsp_dts_mapping();
 
 	adspreg.clkctrl = adspreg.cfg + ADSP_CLK_CTRL_OFFSET;
 	pr_debug("[ADSP] clkctrl base=0x%p\n", adspreg.clkctrl);
-	adsp_clk_device_probe(pdev);
+	adsp_clk_device_probe(&pdev->dev);
 	res = platform_get_resource(pdev, IORESOURCE_IRQ, 0);
 	adspreg.wdt_irq = res->start;
 	pr_debug("[ADSP] adspreg.wdt_irq=%d\n", adspreg.wdt_irq);
@@ -1354,6 +1573,7 @@ static int adsp_device_probe(struct platform_device *pdev)
 
 static int adsp_device_remove(struct platform_device *pdev)
 {
+	adsp_clk_device_remove(&pdev->dev);
 	return 0;
 }
 
@@ -1365,6 +1585,11 @@ static const struct of_device_id adsp_of_ids[] = {
 static const struct dev_pm_ops adsp_pm_ops = {
 	SET_SYSTEM_SLEEP_PM_OPS(adsp_system_sleep_suspend,
 				adsp_system_sleep_resume)
+};
+
+static struct syscore_ops adsp_syscore_ops = {
+	.resume = adsp_syscore_resume,
+	.suspend = adsp_syscore_suspend,
 };
 
 static struct platform_driver mtk_adsp_device = {
@@ -1397,6 +1622,7 @@ static int __init adsp_init(void)
 
 	if (platform_driver_register(&mtk_adsp_device))
 		pr_err("[ADSP] adsp probe fail\n");
+	register_syscore_ops(&adsp_syscore_ops);
 
 	adsp_power_on(true);
 	/* need adsp power on to access DTCM  */
@@ -1510,15 +1736,20 @@ static int __init adsp_module_init(void)
 #if ENABLE_ADSP_EMI_PROTECTION
 	set_adsp_mpu();
 #endif
-
+#ifdef CFG_RECOVERY_SUPPORT
+	adsp_recovery_init();
+	adsp_A_register_notify(&adsp_ready_notifier1);
+#endif
 #if ADSP_DVFS_INIT_ENABLE
 	wait_adsp_dvfs_init_done();
 #endif
 
+#if ADSP_BUS_MONITOR_INIT_ENABLE
+	adsp_bus_monitor_init();
+#endif
 	driver_init_done = true;
-	/* Liang temp add here to release Run stall */
+	/* Liang release Run stall */
 	adsp_release_runstall(true);
-
 
 #if ADSP_BOOT_TIME_OUT_MONITOR
 	init_timer(&adsp_ready_timer[ADSP_A_ID]);
@@ -1558,10 +1789,15 @@ static void __exit adsp_exit(void)
 	free_irq(adspreg.ipc_irq, NULL);
 
 	misc_deregister(&adsp_device);
+	debugfs_remove(adsp_debugfs);
 
 	flush_workqueue(adsp_workqueue);
 	/*adsp_logger_cleanup();*/
 	destroy_workqueue(adsp_workqueue);
+#ifdef CFG_RECOVERY_SUPPORT
+	flush_workqueue(adsp_reset_workqueue);
+	destroy_workqueue(adsp_reset_workqueue);
+#endif
 #if ADSP_BOOT_TIME_OUT_MONITOR
 	for (i = 0; i < ADSP_CORE_TOTAL ; i++)
 		del_timer(&adsp_ready_timer[i]);

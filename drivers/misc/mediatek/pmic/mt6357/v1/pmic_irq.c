@@ -136,7 +136,12 @@ static struct pmic_sp_irq psc_irqs[][PMIC_INT_WIDTH] = {
 		PMIC_SP_IRQ_GEN(0, 0, NO_USE),
 		PMIC_SP_IRQ_GEN(0, 0, NO_USE),
 		PMIC_SP_IRQ_GEN(1, 1, INT_WATCHDOG),
+#ifndef ODM_HQ_EDIT
+/*duanhanxing@ODM.HQ.BSP.Charger 2018.11.29 modify for disable check battery exist*/
 		PMIC_SP_IRQ_GEN(1, 1, INT_VBATON_UNDET),
+#else /*ODM_HQ_EDIT*/
+		PMIC_SP_IRQ_GEN(0, 0, NO_USE),
+#endif /*ODM_HQ_EDIT*/
 		PMIC_SP_IRQ_GEN(1, 1, INT_BVALID_DET),
 		PMIC_SP_IRQ_GEN(1, 0, INT_OV),
 		PMIC_SP_IRQ_GEN(0, 0, NO_USE),

@@ -346,18 +346,26 @@ static int mt6360_fled_set_mode(struct rt_fled_dev *fled,
 	u8 en_bit = (fi->id == MT6360_FLED1) ? MT6360_FLCS1_EN_MASK :
 		    MT6360_FLCS2_EN_MASK;
 
+	dev_info(fi->dev, "%s set %s mutex_lock +\n", __func__,
+		flashlight_mode_str[mode]);
 	mutex_lock(&fled_lock);
+	dev_info(fi->dev, "%s set %s mutex_lock -\n", __func__,
+		flashlight_mode_str[mode]);
 	switch (mode) {
 	case FLASHLIGHT_MODE_TORCH:
 		if (mt6360_global_mode == FLASHLIGHT_MODE_FLASH)
 			break;
 		/* Fled en/Strobe off/Torch on */
-		val = en_bit | MT6360_FL_TORCH_MASK;
-		mask = val | MT6360_FL_STROBE_MASK;
-		ret = mt6360_pmu_reg_update_bits(fi->mpi, MT6360_PMU_FLED_EN,
-						 mask, val);
+		ret = mt6360_pmu_reg_clr_bits(fi->mpi, MT6360_PMU_FLED_EN,
+					      MT6360_FL_STROBE_MASK);
 		if (ret < 0)
 			break;
+		udelay(500);
+		val = en_bit | MT6360_FL_TORCH_MASK;
+		ret = mt6360_pmu_reg_set_bits(fi->mpi, MT6360_PMU_FLED_EN, val);
+		if (ret < 0)
+			break;
+		udelay(500);
 		mt6360_global_mode = mode;
 		mt6360_fled_on |= 1 << fi->id;
 		break;
@@ -375,6 +383,7 @@ static int mt6360_fled_set_mode(struct rt_fled_dev *fled,
 						 mask, val);
 		if (ret < 0)
 			break;
+		mdelay(5);
 		mt6360_global_mode = mode;
 		mt6360_fled_on |= 1 << fi->id;
 		break;
@@ -442,6 +451,8 @@ static int mt6360_fled_strobe_current_list(struct rt_fled_dev *fled,
 		return -EINVAL;
 	if (selector < 117)
 		return 25000 + selector * 6250;
+	/* make the base 762.5 mA */
+	selector -= 60;
 	return 750000 + selector * 12500;
 }
 
@@ -489,9 +500,11 @@ static int mt6360_fled_set_strobe_current_sel(struct rt_fled_dev *fled,
 	if (selector < 117) /* 25 ~ 750mA */
 		ret = mt6360_pmu_reg_set_bits(fi->mpi, reg_strb_cur,
 					     MT6360_UTRAL_ISTRB_MASK);
-	else /* 762.5 ~ 1500mA */
+	else { /* 762.5 ~ 1500mA */
 		ret = mt6360_pmu_reg_clr_bits(fi->mpi, reg_strb_cur,
 					     MT6360_UTRAL_ISTRB_MASK);
+		selector -= 60; /* make the base 762.5 mA */
+	}
 
 	return mt6360_pmu_reg_update_bits(fi->mpi, reg_strb_cur,
 					  MT6360_ISTRB_MASK,

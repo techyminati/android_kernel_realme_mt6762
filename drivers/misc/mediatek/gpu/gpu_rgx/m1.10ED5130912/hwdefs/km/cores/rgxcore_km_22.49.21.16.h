@@ -64,7 +64,10 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #define FIX_HW_BRN_63027
 #define FIX_HW_BRN_63553
 #define FIX_HW_BRN_65273
-
+//#ifdef ODM_HQ_EDIT
+/*Zhongqiu.Yu@ODM.HQ.MM.DISPLAY.GPU 2019.04.10 fix fence timeout*/
+#define FIX_HW_BRN_67349
+//#endif /*ODM_HQ_EDIT*/
 
  
 /******************************************************************************

@@ -224,11 +224,19 @@ unsigned int mt_cpufreq_get_cur_volt(enum mt_cpu_dvfs_id id)
 	return vproc_p->buck_ops->get_cur_volt(vproc_p);
 #else
 #ifdef CONFIG_HYBRID_CPU_DVFS
+#ifdef ENABLE_DOE
+	if (!dvfs_doe.state)
+		return 0;
+#endif
 	return cpuhvfs_get_cur_volt(id);
 #else
 	struct mt_cpu_dvfs *p = id_to_cpu_dvfs(id);
 	struct buck_ctrl_t *vproc_p = id_to_buck_ctrl(p->Vproc_buck_id);
 
+#ifdef ENABLE_DOE
+	if (!dvfs_doe.state)
+		return 0;
+#endif
 	return vproc_p->cur_volt;
 #endif
 #endif
@@ -244,6 +252,10 @@ unsigned int mt_cpufreq_get_cur_freq(enum mt_cpu_dvfs_id id)
 #ifdef CONFIG_HYBRID_CPU_DVFS
 	int freq_idx = cpuhvfs_get_cur_dvfs_freq_idx(id);
 
+#ifdef ENABLE_DOE
+	if (!dvfs_doe.state)
+		return 0;
+#endif
 	if (freq_idx < 0)
 		freq_idx = 0;
 
@@ -254,6 +266,10 @@ unsigned int mt_cpufreq_get_cur_freq(enum mt_cpu_dvfs_id id)
 #else
 	struct mt_cpu_dvfs *p = id_to_cpu_dvfs(id);
 
+#ifdef ENABLE_DOE
+	if (!dvfs_doe.state)
+		return 0;
+#endif
 	return cpu_dvfs_get_cur_freq(p);
 #endif
 #endif
@@ -268,6 +284,10 @@ unsigned int mt_cpufreq_get_cur_freq_idx(enum mt_cpu_dvfs_id id)
 #ifdef CONFIG_HYBRID_CPU_DVFS
 	int freq_idx = cpuhvfs_get_cur_dvfs_freq_idx(id);
 
+#ifdef ENABLE_DOE
+	if (!dvfs_doe.state)
+		return 0;
+#endif
 	if (freq_idx < 0)
 		freq_idx = 0;
 
@@ -282,6 +302,25 @@ unsigned int mt_cpufreq_get_cur_freq_idx(enum mt_cpu_dvfs_id id)
 }
 EXPORT_SYMBOL(mt_cpufreq_get_cur_freq_idx);
 
+unsigned int mt_cpufreq_get_cur_cci_freq_idx(void)
+{
+#ifdef CPU_DVFS_NOT_READY
+	return 0;
+#else
+#ifdef CONFIG_HYBRID_CPU_DVFS
+	if (!dvfs_init_flag)
+		return 7;
+	else
+		return mt_cpufreq_get_cur_freq_idx(MT_CPU_DVFS_CCI);
+
+#endif
+	/* Not Support */
+	return 0;
+#endif
+}
+EXPORT_SYMBOL(mt_cpufreq_get_cur_cci_freq_idx);
+
+
 unsigned int mt_cpufreq_get_freq_by_idx(enum mt_cpu_dvfs_id id, int idx)
 {
 #ifdef CPU_DVFS_NOT_READY
@@ -289,6 +328,10 @@ unsigned int mt_cpufreq_get_freq_by_idx(enum mt_cpu_dvfs_id id, int idx)
 #else
 	struct mt_cpu_dvfs *p = id_to_cpu_dvfs(id);
 
+#ifdef ENABLE_DOE
+	if (!dvfs_doe.state)
+		return 0;
+#endif
 	FUNC_ENTER(FUNC_LV_API);
 
 	if (!cpu_dvfs_is_available(p)) {
@@ -310,6 +353,10 @@ unsigned int mt_cpufreq_get_volt_by_idx(enum mt_cpu_dvfs_id id, int idx)
 #else
 	struct mt_cpu_dvfs *p = id_to_cpu_dvfs(id);
 
+#ifdef ENABLE_DOE
+	if (!dvfs_doe.state)
+		return 0;
+#endif
 	FUNC_ENTER(FUNC_LV_API);
 
 	if (!cpu_dvfs_is_available(p)) {
@@ -332,6 +379,10 @@ unsigned int mt_cpufreq_get_cur_phy_freq_no_lock(enum mt_cpu_dvfs_id id)
 	struct mt_cpu_dvfs *p = id_to_cpu_dvfs(id);
 	unsigned int freq = 0;
 
+#ifdef ENABLE_DOE
+	if (!dvfs_doe.state)
+		return 0;
+#endif
 	FUNC_ENTER(FUNC_LV_LOCAL);
 
 	freq = cpu_dvfs_get_cur_freq(p);
@@ -350,6 +401,10 @@ unsigned int mt_cpufreq_get_cur_phy_freq_idx_no_lock(enum mt_cpu_dvfs_id id)
 #else
 	struct mt_cpu_dvfs *p = id_to_cpu_dvfs(id);
 
+#ifdef ENABLE_DOE
+	if (!dvfs_doe.state)
+		return 0;
+#endif
 	return p->idx_opp_tbl;
 #endif
 }

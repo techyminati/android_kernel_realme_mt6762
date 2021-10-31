@@ -26,9 +26,8 @@
 #include <linux/string.h>
 #include <linux/topology.h>
 #include "mtk_ppm_internal.h"
-#ifndef NO_MTK_TRACE
 #include <trace/events/mtk_events.h>
-#endif
+#include <linux/of.h>
 
 /*==============================================================*/
 /* Local Macros                                                 */
@@ -63,6 +62,7 @@ static int ppm_main_pdrv_remove(struct platform_device *pdev);
 /*==============================================================*/
 struct ppm_data ppm_main_info = {
 	.is_enabled = true,
+	.is_doe_enabled = 0,
 	.is_in_suspend = false,
 	.min_power_budget = ~0,
 	.dvfs_tbl_type = DVFS_TABLE_TYPE_FY,
@@ -475,6 +475,28 @@ static void ppm_main_calc_new_limit(void)
 	/* fill ptpod activate flag */
 	c_req->is_ptp_policy_activate = is_ptp_activate;
 
+	/* DoE */
+	if (!is_ptp_activate &&
+			ppm_main_info.client_info[PPM_CLIENT_DVFS].limit_cb) {
+		if (ppm_main_info.is_doe_enabled == 1) {
+			for_each_ppm_clusters(i) {
+				pr_debug_ratelimited(
+					"[DoE] cl: %d max: %d min: %d\n",
+					i,
+					ppm_main_info.cluster_info[i].doe_max,
+					ppm_main_info.cluster_info[i].doe_min
+					);
+				c_req->cpu_limit[i].max_cpufreq_idx =
+					ppm_main_info.cluster_info[i].doe_max;
+				c_req->cpu_limit[i].min_cpufreq_idx =
+					ppm_main_info.cluster_info[i].doe_min;
+				c_req->cpu_limit[i].has_advise_freq = false;
+				c_req->cpu_limit[i].advise_cpufreq_idx = -1;
+			}
+		}
+	}
+	/* DoE */
+
 	/* Trigger exception if all cluster max core limit is 0 */
 	if (is_all_cluster_zero) {
 		struct ppm_policy_data *pos;
@@ -610,6 +632,12 @@ int mt_ppm_main(void)
 	if (!ppm_main_info.is_enabled || ppm_main_info.is_in_suspend)
 		goto end;
 
+	if (!ppm_main_info.client_info[PPM_CLIENT_DVFS].limit_cb ||
+		!ppm_main_info.client_info[PPM_CLIENT_HOTPLUG].limit_cb) {
+		ppm_info("dvfs/hps clients not yet registed!\n");
+		goto end;
+	}
+
 #ifdef CONFIG_MTK_RAM_CONSOLE
 	aee_rr_rec_ppm_step(1);
 #endif
@@ -618,10 +646,22 @@ int mt_ppm_main(void)
 	list_for_each_entry(pos, &ppm_main_info.policy_list, link) {
 		if ((pos->is_activated)
 			&& pos->update_limit_cb) {
+			int idx;
+
 			ppm_lock(&pos->lock);
 			policy_mask |= 1 << pos->policy;
 			pos->update_limit_cb();
 			pos->is_limit_updated = true;
+
+			for (idx = 0; idx < pos->req.cluster_num; idx++) {
+				trace_ppm_user_setting(
+					pos->policy,
+					idx,
+					pos->req.limit[idx].min_cpufreq_idx,
+					pos->req.limit[idx].max_cpufreq_idx
+				);
+			}
+
 			ppm_unlock(&pos->lock);
 		}
 	}
@@ -787,10 +827,14 @@ int mt_ppm_main(void)
 		}
 
 nofity_end:
-		memcpy(last_req->cpu_limit, c_req->cpu_limit,
+		if (ppm_main_info.client_info[PPM_CLIENT_DVFS].limit_cb)
+			memcpy(last_req->cpu_limit, c_req->cpu_limit,
 			ppm_main_info.cluster_num * sizeof(*c_req->cpu_limit));
-		cpumask_copy(last_req->online_core, c_req->online_core);
+		if (ppm_main_info.client_info[PPM_CLIENT_HOTPLUG].limit_cb)
+			cpumask_copy(last_req->online_core,
+				c_req->online_core);
 	}
+
 
 #ifdef CONFIG_MTK_RAM_CONSOLE
 	aee_rr_rec_ppm_step(0);
@@ -1000,6 +1044,10 @@ static int ppm_main_pdrv_remove(struct platform_device *pdev)
 static int __init ppm_main_init(void)
 {
 	int ret = 0;
+	struct device_node *cn, *map, *c, *d;
+	int max, min;
+	char name[10];
+	int i = 0;
 
 	FUNC_ENTER(FUNC_LV_MODULE);
 
@@ -1038,6 +1086,71 @@ static int __init ppm_main_init(void)
 		goto profile_init_fail;
 	}
 
+	/* DoE */
+	cn = of_find_node_by_path("/cpus");
+
+	if (!cn)
+		goto NO_DOE;
+
+	map = of_get_child_by_name(cn, "virtual-cpu-map");
+
+	if (!map) {
+		map = of_get_child_by_name(cn, "cpu-map");
+
+		if (!map)
+			goto NO_DOE;
+	}
+
+	i = 0;
+
+	do {
+		snprintf(name, sizeof(name), "cluster%d", i);
+		c = of_get_child_by_name(map, name);
+
+		if (!c)
+			goto NO_DOE;
+
+		d = of_get_child_by_name(c, "doe");
+
+		if (!d)
+			goto NO_DOE;
+
+		ret = of_property_read_u32(d, "max", &max);
+
+		if (ret != 0)
+			goto NO_DOE;
+
+		ret = of_property_read_u32(d, "min", &min);
+
+		if (ret != 0)
+			goto NO_DOE;
+
+		of_node_put(d);
+		of_node_put(c);
+
+		ppm_main_info.cluster_info[i].doe_max = max;
+		ppm_main_info.cluster_info[i].doe_min = min;
+		ppm_main_info.is_doe_enabled = 1;
+
+		i++;
+
+	} while (i < NR_PPM_CLUSTERS);
+
+	of_node_put(map);
+
+	ppm_info("DoE: %d\n", ppm_main_info.is_doe_enabled);
+	i = 0;
+
+	do {
+		ppm_info("cl: %d max: %d min: %d\n",
+			i,
+			ppm_main_info.cluster_info[i].doe_max,
+			ppm_main_info.cluster_info[i].doe_min);
+		i++;
+	} while (i < NR_PPM_CLUSTERS);
+
+	/* DoE */
+
 	ppm_info("ppm driver init done!\n");
 
 	return ret;
@@ -1053,6 +1166,16 @@ fail:
 	ppm_err("ppm driver init fail!\n");
 
 	FUNC_EXIT(FUNC_LV_MODULE);
+
+	return ret;
+NO_DOE:
+	of_node_put(cn);
+	of_node_put(map);
+	of_node_put(c);
+	of_node_put(d);
+
+	ppm_main_info.is_doe_enabled = 0;
+	ppm_info("ppm driver init done (no DoE)!\n");
 
 	return ret;
 }

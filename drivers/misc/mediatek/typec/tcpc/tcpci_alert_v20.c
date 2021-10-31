@@ -359,7 +359,6 @@ static inline int __tcpci_alert(struct tcpc_device *tcpc_dev)
 	int rv, i;
 	uint32_t alert_status;
 	uint32_t alert_mask;
-	int org_vbus_level = tcpc_dev->vbus_level;
 
 	rv = tcpci_get_alert_status(tcpc_dev, &alert_status);
 	if (rv)
@@ -399,8 +398,7 @@ static inline int __tcpci_alert(struct tcpc_device *tcpc_dev)
 #endif /* CONFIG_USB_PD_DBG_SKIP_ALERT_HANDLER */
 
 	tcpci_vbus_level_refresh(tcpc_dev);
-	if (org_vbus_level != tcpc_dev->vbus_level)
-		tcpci_vbus_level_changed(tcpc_dev);
+	tcpci_vbus_level_changed(tcpc_dev);
 	return 0;
 }
 
@@ -429,7 +427,7 @@ static inline void tcpci_attach_wake_lock(struct tcpc_device *tcpc)
 {
 #ifdef CONFIG_TCPC_ATTACH_WAKE_LOCK_TOUT
 	__pm_wakeup_event(&tcpc->attach_wake_lock,
-		CONFIG_TCPC_ATTACH_WAKE_LOCK_TOUT * HZ);
+					     CONFIG_TCPC_ATTACH_WAKE_LOCK_TOUT);
 #else
 	__pm_stay_awake(&tcpc->attach_wake_lock);
 #endif	/* CONFIG_TCPC_ATTACH_WAKE_LOCK_TOUT */
@@ -483,7 +481,7 @@ static inline int tcpci_set_wake_lock_pd(
 		wake_lock_pd--;
 
 	if (wake_lock_pd == 0)
-		__pm_wakeup_event(&tcpc->dettach_temp_wake_lock, 5 * HZ);
+		__pm_wakeup_event(&tcpc->dettach_temp_wake_lock, 5000);
 
 	tcpci_set_wake_lock(tcpc, wake_lock_pd, tcpc->wake_lock_user);
 

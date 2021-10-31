@@ -78,7 +78,7 @@ typedef struct {
  * GPU DVFS Table
  *****************************************************************************/
 
-#define RGX_GPU_DVFS_TABLE_SIZE                      16
+#define RGX_GPU_DVFS_TABLE_SIZE                      32
 #define RGX_GPU_DVFS_FIRST_CALIBRATION_TIME_US       25000     /* Time required to calibrate a clock frequency the first time */
 #define RGX_GPU_DVFS_TRANSITION_CALIBRATION_TIME_US  150000    /* Time required for a recalibration after a DVFS transition */
 #define RGX_GPU_DVFS_PERIODIC_CALIBRATION_TIME_US    10000000  /* Time before the next periodic calibration and correlation */
@@ -611,6 +611,7 @@ typedef struct _PVRSRV_RGXDEV_INFO_
 	IMG_UINT32				ui32OldestSubmissionOrdinal; /* Earliest submission ordinal of CCB entry found so far */
 
 	POS_LOCK				hCCBStallCheckLock; /* Lock used to guard against multiple threads simultaneously checking for stalled CCBs */
+
 } PVRSRV_RGXDEV_INFO;
 
 

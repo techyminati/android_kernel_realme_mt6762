@@ -121,7 +121,6 @@ static uint8_t *core_write_cpu_note(int cpu, struct elf32_phdr *nhdr,
 				sizeof(prstatus.pr_reg));
 	}
 
-
 	if (prstatus.pr_reg[15] == 0x0 && (id == SCP_A_ID))
 		prstatus.pr_reg[15] = readl(SCP_A_DEBUG_PC_REG);
 	if (prstatus.pr_reg[14] == 0x0 && (id == SCP_A_ID))
@@ -283,6 +282,7 @@ uint32_t scp_dump_lr(void)
 	else
 		return 0xFFFFFFFF;
 }
+
 /*
  * return last pc for debugging
  */
@@ -293,6 +293,7 @@ uint32_t scp_dump_pc(void)
 	else
 		return 0xFFFFFFFF;
 }
+
 /*
  * dump scp register for debugging
  */
@@ -317,6 +318,9 @@ void scp_A_dump_regs(void)
 	pr_debug("[SCP]IRQ_STATUS 0x%x\n", readl(SCP_INTC_IRQ_STATUS));
 	pr_debug("[SCP]IRQ_ENABLE 0x%x\n", readl(SCP_INTC_IRQ_ENABLE));
 	pr_debug("[SCP]IRQ_SLEEP 0x%x\n", readl(SCP_INTC_IRQ_SLEEP));
+	pr_debug("[SCP]IRQ_STATUS_MSB 0x%x\n", readl(SCP_INTC_IRQ_STATUS_MSB));
+	pr_debug("[SCP]IRQ_ENABLE_MSB 0x%x\n", readl(SCP_INTC_IRQ_ENABLE_MSB));
+	pr_debug("[SCP]IRQ_SLEEP_MSB 0x%x\n", readl(SCP_INTC_IRQ_SLEEP_MSB));
 	pr_debug("[SCP]CLK_CTRL_SEL 0x%x\n", readl(SCP_CLK_SW_SEL));
 	pr_debug("[SCP]CLK_ENABLE  0x%x\n", readl(SCP_CLK_ENABLE));
 	pr_debug("[SCP]SLEEP_DEBUG 0x%x\n", readl(SCP_A_SLEEP_DEBUG_REG));
@@ -330,7 +334,6 @@ void scp_A_dump_regs(void)
 	pr_debug("[SCP]BUS:ICACHE LATCH,  0x%x\n", readl(SCP_DEBUG_IRQ_INFO));
 	writel(tmp | (3 << dbg_irq_info_sel_shift), SCP_BUS_CTRL);
 	pr_debug("[SCP]BUS:PC LATCH,  0x%x\n", readl(SCP_DEBUG_IRQ_INFO));
-
 }
 
 /*
@@ -365,7 +368,9 @@ static unsigned int scp_crash_dump(struct MemoryDump *pMemoryDump,
 	unsigned int *reg;
 	unsigned int scp_dump_size;
 	unsigned int scp_awake_fail_flag;
+#if SCP_RECOVERY_SUPPORT
 	uint32_t dram_start = 0;
+#endif
 	uint32_t dram_size = 0;
 
 	/*flag use to indicate scp awake success or not*/
@@ -624,8 +629,7 @@ void scp_aed(enum scp_excep_id type, enum scp_core_id id)
  * should not be called in interrupt context
  * @param type: exception type
  */
-void scp_aed_reset_inplace(enum scp_excep_id type,
-		enum scp_core_id id)
+void scp_aed_reset_inplace(enum scp_excep_id type, enum scp_core_id id)
 {
 	pr_debug("[SCP]scp_aed_reset_inplace\n");
 	if (scp_ee_enable)
@@ -647,7 +651,6 @@ void scp_aed_reset_inplace(enum scp_excep_id type,
 		complete(&scp_sys_reset_cp);
 	}
 #endif
-
 }
 
 /*
@@ -669,18 +672,6 @@ static void scp_aed_reset_ws(struct work_struct *ws)
 	scp_aed_reset_inplace(type, id);
 }
 
-/* IPI for ramdump config
- * @param id:   IPI id
- * @param data: IPI data
- * @param len:  IPI data length
- */
-static void scp_A_ram_dump_ipi_handler(int id, void *data,
-		unsigned int len)
-{
-	scp_A_task_context_addr = *(unsigned int *)data;
-	pr_debug("[SCP]get scp_A_task_context_addr: 0x%x\n",
-			scp_A_task_context_addr);
-}
 
 /*
  * schedule a work to generate an exception and reset scp
@@ -738,10 +729,11 @@ int scp_excep_init(void)
 
 	INIT_WORK(&scp_aed_work.work, scp_aed_reset_ws);
 
-	/* alloc dump memory*/
+	/* alloc dump memory */
 	scp_A_detail_buffer = vmalloc(SCP_AED_STR_LEN);
 	if (!scp_A_detail_buffer)
 		return -1;
+
 #if SCP_RECOVERY_SUPPORT
 	/* support L1C or not? */
 	if ((int)(scp_region_info->ap_dram_size) > 0)
@@ -760,28 +752,27 @@ int scp_excep_init(void)
 	if (!scp_A_dump_buffer_last)
 		return -1;
 
-
 	/* init global values */
 	scp_A_dump_length = 0;
-	/* 1: ee on, 0: ee disable*/
+	/* 1: ee on, 0: ee disable */
 	scp_ee_enable = 1;
 
 	return 0;
 }
-/*
- * ram dump init
- */
+
+
+/******************************************************************************
+ * This function is called in the interrupt context. Note that scp_region_info
+ * was initialized in scp_region_info_init() which must be called before this
+ * function is called.
+ *****************************************************************************/
 void scp_ram_dump_init(void)
 {
-	/* init global values */
-	scp_A_task_context_addr = 0;
-
-	/* ipi handler registration */
-	scp_ipi_registration(IPI_SCP_A_RAM_DUMP,
-		scp_A_ram_dump_ipi_handler, "A_ramdp");
-
-	pr_debug("[SCP] ram_dump_init() done\n");
+	scp_A_task_context_addr = scp_region_info->TaskContext_ptr;
+	pr_debug("[SCP] get scp_A_task_context_addr: 0x%x\n",
+		scp_A_task_context_addr);
 }
+
 
 /*
  * cleanup scp exception

@@ -7,6 +7,13 @@ config MTK_TINYSYS_SSPM_SUPPORT
 	  If unsure,
 	  Set N to stay with legancy feature.
 
+# ifdef ODM_HQ_EDIT
+# tianxu@ODM.Android.kernel.config 2018/12/10 add for add reserve memory
+config MTK_MET_MEM_ALLOC
+	bool "Using dynamic allocate memory for MET"
+	default n
+# endif ODM_HQ_EDIT
+
 config MTK_TINYSYS_SSPM_PLT_SUPPORT
 	bool "Specifiy Interface of SSPM on Platform"
 	default n

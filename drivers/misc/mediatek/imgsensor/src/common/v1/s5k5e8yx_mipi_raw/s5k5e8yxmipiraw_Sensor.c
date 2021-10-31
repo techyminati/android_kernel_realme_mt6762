@@ -91,7 +91,7 @@ static struct imgsensor_info_struct imgsensor_info = {
 		.grabwindow_width = 2592,
 		.grabwindow_height = 1944,
 		.mipi_data_lp2hs_settle_dc = 85,
-		.mipi_pixel_rate = 168000000,
+		.mipi_pixel_rate = 1680000000,
 		.max_framerate = 300,
 	},
 	.hs_video = {
@@ -122,7 +122,7 @@ static struct imgsensor_info_struct imgsensor_info = {
 	.min_shutter = 2,
 	.max_frame_length = 0xffff,
 	.ae_shut_delay_frame = 0,
-	.ae_sensor_gain_delay_frame = 0,
+	.ae_sensor_gain_delay_frame = 1,
 	.ae_ispGain_delay_frame = 2,
 	.ihdr_support = 0,	  //1, support; 0,not support
 	.ihdr_le_firstline = 0,  //1,le first ; 0, se first

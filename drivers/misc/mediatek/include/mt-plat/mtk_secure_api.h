@@ -49,6 +49,8 @@
 	(0x82000206 | MTK_SIP_SMC_AARCH_BIT)
 #define MTK_SIP_KERNEL_DAPC_DUMP \
 	(0x82000207 | MTK_SIP_SMC_AARCH_BIT)
+#define MTK_SIP_KERNEL_CLR_SRAMROM_VIO \
+	(0x82000208 | MTK_SIP_SMC_AARCH_BIT)
 
 /* CPU operations */
 #define MTK_SIP_POWER_DOWN_CLUSTER \
@@ -159,6 +161,14 @@
 /* Pheripheral related SMC call */
 #define MTK_SIP_KERNEL_I2C_SEC_WRITE \
 	(0x820002A0 | MTK_SIP_SMC_AARCH_BIT)
+
+/* M4U related SMC call */
+#define MTK_M4U_DEBUG_DUMP \
+	(0x820003E0 | MTK_SIP_SMC_AARCH_BIT)
+
+/* APU related SMC call */
+#define MTK_APU_VCORE_CG_CTL \
+	(0x820003E1 | MTK_SIP_SMC_AARCH_BIT)
 
 extern size_t mt_secure_call_all(size_t function_id,
 	size_t arg0, size_t arg1, size_t arg2,

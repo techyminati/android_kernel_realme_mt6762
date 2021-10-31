@@ -37,6 +37,7 @@ enum {
 	als,
 	ps,
 	baro,
+	sar,
 	maxhandle,
 };
 
@@ -70,6 +71,9 @@ inline int sensor_to_handle(int sensor)
 	case ID_PRESSURE:
 		handle = baro;
 		break;
+	case ID_SAR:
+		handle = sar;
+		break;
 	}
 	return handle;
 }
@@ -97,6 +101,9 @@ static inline int handle_to_sensor(int handle)
 	case baro:
 		sensor = ID_PRESSURE;
 		break;
+	case sar:
+		sensor = ID_SAR;
+		break;
 	}
 	return sensor;
 }
@@ -121,6 +128,7 @@ static void sensorlist_get_deviceinfo(struct work_struct *work)
 		sensor = handle_to_sensor(handle);
 		if (sensor < 0)
 			continue;
+		memset(&devinfo, 0, sizeof(struct sensorInfo_t));
 		err = sensor_set_cmd_to_hub(sensor,
 			CUST_ACTION_GET_SENSOR_INFO, &devinfo);
 		if (err < 0) {

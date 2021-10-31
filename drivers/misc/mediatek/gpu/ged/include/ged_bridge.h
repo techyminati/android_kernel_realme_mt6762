@@ -65,6 +65,10 @@ int ged_bridge_event_notify(
 		GED_BRIDGE_IN_EVENT_NOTIFY *psEVENT_NOTIFYINT, 
 		GED_BRIDGE_OUT_EVENT_NOTIFY *psEVENT_NOTIFYOUT);
 
+int ged_bridge_gpu_hint_to_cpu(
+		GED_BRIDGE_IN_GPU_HINT_TO_CPU * in,
+		GED_BRIDGE_OUT_GPU_HINT_TO_CPU *out);
+
 int ged_bridge_gpu_timestamp(
 	GED_BRIDGE_IN_GPU_TIMESTAMP * psGpuBeginINT,
 	GED_BRIDGE_OUT_GPU_TIMESTAMP *psGpuBeginOUT);
@@ -82,7 +86,7 @@ int ged_bridge_ge_set(
 		struct GED_BRIDGE_OUT_GE_SET_TAG *psSET_OUT);
 
 int ged_bridge_ge_info(
-		struct GED_BRIDGE_IN_GE_INFO_TAG  *psINFO_IN,
+		struct GED_BRIDGE_IN_GE_INFO_TAG *psINFO_IN,
 		struct GED_BRIDGE_OUT_GE_INFO_TAG *psINFO_OUT);
 
 #ifdef ENABLE_FRR_FOR_MT6XXX_PLATFORM

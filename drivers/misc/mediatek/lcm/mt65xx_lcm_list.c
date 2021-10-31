@@ -28,6 +28,20 @@ enum LCM_DSI_MODE_CON lcm_dsi_mode;
 #define LCD_HW_ID_STATUS_ERROR  0x03
 
 struct LCM_DRIVER *lcm_driver_list[] = {
+#ifdef ODM_HQ_EDIT
+/* Wangxianfei@ODM.Multimedia.LCD  2018/11/29 add for LCD bring up */
+#if defined(ILI9881C_HD_DSI_VDO_TXD_BOE_ZAL1890)
+	&ili9881c_hd_dsi_vdo_txd_boe_zal1890_lcm_drv,
+#endif
+
+#if defined (ILI9881C_HD_DSI_VDO_LS_INX_ZAL1890)
+	&ili9881c_hd_dsi_vdo_ls_inx_zal1890_lcm_drv,
+#endif
+
+#if defined (HX8394F_HD_DSI_VDO_HLT_HSD_ZAL1890)
+	&hx8394f_hd_dsi_vdo_hlt_hsd_zal1890_lcm_drv,
+#endif
+#endif
 #if defined(OTM1284A_HD720_DSI_VDO_TM)
 	&otm1284a_hd720_dsi_vdo_tm_lcm_drv,
 #endif
@@ -929,6 +943,9 @@ struct LCM_DRIVER *lcm_driver_list[] = {
 #if defined(NT35695_FHD_DSI_CMD_TRULY_NT50358_QHD)
 	&nt35695_fhd_dsi_cmd_truly_nt50358_qhd_lcm_drv,
 #endif
+#if defined(NT35695_FHD_DSI_CMD_TRULY_RT4801)
+	&nt35695_fhd_dsi_cmd_truly_rt4801_lcm_drv,
+#endif
 #if defined(NT35695_FHD_DSI_CMD_TRULY_RT5081)
 	&nt35695_fhd_dsi_cmd_truly_rt5081_lcm_drv,
 #endif
@@ -1025,6 +1042,9 @@ struct LCM_DRIVER *lcm_driver_list[] = {
 #if defined(NT35695_FHD_DSI_VDO_AUO_NT50358_LANESWAP_MT6799)
 	&nt35695_fhd_dsi_vdo_auo_nt50358_laneswap_mt6799_lcm_drv,
 #endif
+#if defined(NT35695B_FHD_DSI_CMD_AUO_RT4801)
+	&nt35695B_fhd_dsi_cmd_auo_rt4801_lcm_drv,
+#endif
 #if defined(NT35695B_FHD_DSI_CMD_AUO_RT5081)
 	&nt35695B_fhd_dsi_cmd_auo_rt5081_lcm_drv,
 #endif
@@ -1119,8 +1139,19 @@ struct LCM_DRIVER *lcm_driver_list[] = {
 	&ili9881h_hdp_dsi_vdo_ilitek_rt5081_19_9_lcm_drv,
 #endif
 
-#if defined(HX83112B_FHDP_DSI_CMD_AUO_RT5081)
-	&hx83112b_fhdp_dsi_cmd_auo_rt5081_lcm_drv,
+#if defined(HX83112B_FHDP_DSI_CMD_AUO_RT4801)
+	&hx83112b_fhdp_dsi_cmd_auo_rt4801_lcm_drv,
+#endif
+
+#if defined(HX83112B_FHDP_DSI_CMD_FHD_AUO_RT4801)
+	&hx83112b_fhdp_dsi_cmd_fhd_auo_rt4801_lcm_drv,
+#endif
+
+#if defined(HX83112B_FHDP_DSI_VDO_AUO_RT4801)
+	&hx83112b_fhdp_dsi_vdo_auo_rt4801_lcm_drv,
+#endif
+#if defined(SOFEG01_FHDPLUS_DSI_CMD_SAMSUNG)
+	&sofeg01_fhdplus_dsi_cmd_samsung_lcm_drv,
 #endif
 };
 

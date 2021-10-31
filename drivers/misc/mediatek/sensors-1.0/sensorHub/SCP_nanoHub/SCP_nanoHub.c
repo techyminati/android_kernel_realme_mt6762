@@ -615,11 +615,9 @@ static void SCP_sensorHub_moving_average(SCP_SENSOR_HUB_DATA_P rsp)
 	uint64_t scp_raw_time = 0, scp_now_time = 0;
 	uint64_t ipi_transfer_time = 0;
 
-	if (timekeeping_rtc_skipresume()) {
-		if (READ_ONCE(rtc_compensation_suspend)) {
-			pr_err("rtc_compensation_suspended,drop run algo\n");
+	if (!timekeeping_rtc_skipresume()) {
+		if (READ_ONCE(rtc_compensation_suspend))
 			return;
-		}
 	}
 	ap_now_time = ktime_get_boot_ns();
 	arch_counter = arch_counter_get_cntvct();
@@ -903,7 +901,6 @@ static void SCP_sensorHub_init_sensor_state(void)
 	mSensorState[SENSOR_TYPE_RGBW].timestamp_filter = false;
 
 	mSensorState[SENSOR_TYPE_SAR].sensorType = SENSOR_TYPE_SAR;
-	mSensorState[SENSOR_TYPE_SAR].rate = SENSOR_RATE_ONCHANGE;
 	mSensorState[SENSOR_TYPE_SAR].timestamp_filter = false;
 }
 
@@ -1068,7 +1065,7 @@ static int SCP_sensorHub_report_data(struct data_unit_t *data_t)
 	} else if (need_send == true && alt) {
 		if (alt_enable && data_t->flush_action == DATA_ACTION)
 			err = obj->dispatch_data_cb[alt_id](data_t, NULL);
-		else if (alt_enable && data_t->flush_action == FLUSH_ACTION) {
+		else if (data_t->flush_action == FLUSH_ACTION) {
 			p_flush_count = &mSensorState[alt].flushCnt;
 			if (atomic_dec_if_positive(p_flush_count) >= 0)
 				err = obj->dispatch_data_cb[alt_id](data_t,
@@ -1076,7 +1073,7 @@ static int SCP_sensorHub_report_data(struct data_unit_t *data_t)
 		}
 		if (raw_enable && data_t->flush_action == DATA_ACTION)
 			err = obj->dispatch_data_cb[sensor_id](data_t, NULL);
-		else if (raw_enable && data_t->flush_action == FLUSH_ACTION) {
+		else if (data_t->flush_action == FLUSH_ACTION) {
 			p_flush_count = &mSensorState[sensor_type].flushCnt;
 			if (atomic_dec_if_positive(p_flush_count) >= 0)
 				err = obj->dispatch_data_cb[sensor_id](data_t,
@@ -1171,7 +1168,7 @@ static int sensor_send_dram_info_to_hub(void)
 	struct SCP_sensorHub_data *obj = obj_data;
 	SCP_SENSOR_HUB_DATA data;
 	unsigned int len = 0;
-	int err = 0, retry = 0, total = 3;
+	int err = 0, retry = 0, total = 10;
 
 	obj->shub_dram_phys = scp_get_reserve_mem_phys(SENS_MEM_ID);
 	obj->shub_dram_virt = scp_get_reserve_mem_virt(SENS_MEM_ID);
@@ -1645,7 +1642,9 @@ int sensor_get_data_from_hub(uint8_t sensorType,
 		break;
 	case ID_SAR:
 		data->time_stamp = data_t->time_stamp;
-		data->sar_event.state = data_t->sar_event.state;
+		data->sar_event.data[0] = data_t->sar_event.data[0];
+		data->sar_event.data[1] = data_t->sar_event.data[1];
+		data->sar_event.data[2] = data_t->sar_event.data[2];
 		break;
 	default:
 		err = -1;
@@ -1990,6 +1989,29 @@ int sensor_set_cmd_to_hub(uint8_t sensorType,
 			len = offsetof(SCP_SENSOR_HUB_SET_CUST_REQ, custData)
 			    + sizeof(req.set_cust_req.getInfo);
 			break;
+		#ifdef ODM_HQ_EDIT
+		/* GuJianchao@ODM_HQ.Sensors.SCP.BSP, 2018/12/28, add sensors func for msensor selftest */
+		case CUST_ACTION_SELF_TEST:
+			req.set_cust_req.selfTest.action =
+				CUST_ACTION_SELF_TEST;
+			len = offsetof(SCP_SENSOR_HUB_SET_CUST_REQ, custData)
+			    + sizeof(req.set_cust_req.selfTest);
+			break;
+		#endif
+		default:
+			return -1;
+		}
+		break;
+	case ID_SAR:
+		req.set_cust_req.sensorType = ID_SAR;
+		req.set_cust_req.action = SENSOR_HUB_SET_CUST;
+		switch (action) {
+		case CUST_ACTION_GET_SENSOR_INFO:
+			req.set_cust_req.getInfo.action =
+				CUST_ACTION_GET_SENSOR_INFO;
+			len = offsetof(SCP_SENSOR_HUB_SET_CUST_REQ, custData)
+			    + sizeof(req.set_cust_req.getInfo);
+			break;
 		default:
 			return -1;
 		}
@@ -2032,6 +2054,19 @@ int sensor_set_cmd_to_hub(uint8_t sensorType,
 			&req.set_cust_rsp.getInfo.sensorInfo,
 			sizeof(struct sensorInfo_t));
 		break;
+	#ifdef ODM_HQ_EDIT
+	/* GuJianchao@ODM_HQ.Sensors.SCP.BSP, 2018/12/28, add sensors func for msensor selftest */
+	case CUST_ACTION_SELF_TEST:
+		if (req.set_cust_rsp.selfTest.action !=
+			CUST_ACTION_SELF_TEST) {
+			pr_info("scp_sensorHub_req_send failed action!\n");
+			return -1;
+		}
+		memcpy((int32_t *)data,
+			&req.set_cust_rsp.selfTest.int32_data,
+			sizeof(int32_t));
+		break;
+	#endif
 	default:
 		break;
 	}

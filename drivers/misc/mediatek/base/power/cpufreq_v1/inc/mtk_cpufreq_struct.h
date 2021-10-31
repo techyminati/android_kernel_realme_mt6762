@@ -16,6 +16,8 @@
 
 #include <linux/cpufreq.h>
 #include "mtk_cpufreq_config.h"
+#define NR_FREQ		16
+#define ARRAY_COL_SIZE	4
 
 /* Table Define */
 #define OP(khz, volt) {		\
@@ -24,7 +26,7 @@
 }
 
 struct mt_cpu_freq_info {
-	const unsigned int cpufreq_khz;
+	unsigned int cpufreq_khz;
 	unsigned int cpufreq_volt;
 };
 
@@ -39,12 +41,24 @@ struct opp_tbl_info {
 }
 
 struct mt_cpu_freq_method {
-	const char pos_div;
-	const char clk_div;
+	char pos_div;
+	char clk_div;
 };
 
 struct opp_tbl_m_info {
 	struct mt_cpu_freq_method *const opp_tbl_m;
+};
+
+struct cpudvfs_doe {
+	u32 dts_opp_tbl[NR_MT_CPU_DVFS][NR_FREQ * ARRAY_COL_SIZE];
+	unsigned int doe_flag;
+	unsigned int state;
+	unsigned int change_flag;
+	unsigned int lt_rs_t;
+	unsigned int lt_dw_t;
+	unsigned int bg_rs_t;
+	unsigned int bg_dw_t;
+	char *dtsn[NR_MT_CPU_DVFS];
 };
 
 struct mt_cpu_dvfs {

@@ -19,8 +19,7 @@
 enum mb_result {
 		MAILBOX_OK = 0,
 		MAILBOX_QUEUE_FULL,
-		MAILBOX_QUEUE_EMPTY,
-		MAILBOX_UNINIT
+		MAILBOX_QUEUE_EMPTY
 };
 
 enum mb_result mailbox_init(struct ccu_mailbox_t *apmcu_mb_addr,

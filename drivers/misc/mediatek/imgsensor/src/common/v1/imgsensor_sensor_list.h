@@ -121,7 +121,6 @@ UINT32 S5K5E8YXREAR2_MIPI_RAW_SensorInit
 UINT32 HI841_MIPI_RAW_SensorInit(struct SENSOR_FUNCTION_STRUCT **pfFunc);
 UINT32 HI707_YUV_SensorInit(struct SENSOR_FUNCTION_STRUCT **pfFunc);
 UINT32 HI704_YUV_SensorInit(struct SENSOR_FUNCTION_STRUCT **pfFunc);
-UINT32 HI556_MIPI_RAW_SensorInit(struct SENSOR_FUNCTION_STRUCT **pfFunc);
 UINT32 HI551_MIPI_RAW_SensorInit(struct SENSOR_FUNCTION_STRUCT **pfFunc);
 UINT32 HI545_MIPI_RAW_SensorInit(struct SENSOR_FUNCTION_STRUCT **pfFunc);
 UINT32 HI544_MIPI_RAW_SensorInit(struct SENSOR_FUNCTION_STRUCT **pfFunc);
@@ -171,6 +170,16 @@ UINT32 T4KA7_MIPI_RAW_SensorInit(struct SENSOR_FUNCTION_STRUCT **pfFunc);
 /*Others*/
 UINT32 ISX012_MIPI_YUV_SensorInit(struct SENSOR_FUNCTION_STRUCT **pfFunc);
 UINT32 T8EV5_YUV_SensorInit(struct SENSOR_FUNCTION_STRUCT **pfFunc);
+
+//zhaiyankun_hq@ODM_HQ.Multimedia.Camera.driver, 2018/12/7, Add for bring up start
+UINT32 HI846_MIPI_RAW_SensorInit(struct SENSOR_FUNCTION_STRUCT **pfFunc);
+UINT32 HI556_MIPI_RAW_SensorInit(struct SENSOR_FUNCTION_STRUCT **pfFunc);
+UINT32 GC2375H_MIPI_RAW_SensorInit(struct SENSOR_FUNCTION_STRUCT **pfFunc);
+UINT32 GC5035_MIPI_RAW_SensorInit(struct SENSOR_FUNCTION_STRUCT **pfFunc);
+
+/* chenlijun_hq@ODM_HQ.Multimedia.camera, 2018/12/10, modify for camera bring up*/
+UINT32 S5K3H7YX_MIPI_RAW_SensorInit(struct SENSOR_FUNCTION_STRUCT **pfFunc);
+//zhaiyankun_hq@ODM_HQ.Multimedia.Camera.driver, 2018/12/7, Add for bring up end
 
 extern struct IMGSENSOR_INIT_FUNC_LIST kdSensorList[];
 

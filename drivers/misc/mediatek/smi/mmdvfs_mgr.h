@@ -18,9 +18,9 @@
 #include <mt-plat/mtk_smi.h>
 
 /* from smi_configuration.h */
-#define SMI_PARAM_DISABLE_MMDVFS				(0)
-#define SMI_PARAM_DISABLE_FREQ_MUX				(1)
-#define SMI_PARAM_DISABLE_FREQ_HOPPING			(1)
+#define SMI_PARAM_DISABLE_MMDVFS		(0)
+#define SMI_PARAM_DISABLE_FREQ_MUX		(1)
+#define SMI_PARAM_DISABLE_FREQ_HOPPING		(1)
 #define SMI_PARAM_DISABLE_FORCE_MMSYS_MAX_CLK	(1)
 
 /* implement in smi_legacy.c */
@@ -129,6 +129,7 @@ extern int get_mmdvfs_clk_mux_mask(void);
 #define MMDVFS_PROFILE_CER (2)
 #define MMDVFS_PROFILE_MER (3)
 #define MMDVFS_PROFILE_EIG (4)
+#define MMDVFS_PROFILE_LAF (5)
 
 /* Macro used to resovling step setting ioctl command */
 #define MMDVFS_CMD_STEP_LEN (8)

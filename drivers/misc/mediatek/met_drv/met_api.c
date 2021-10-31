@@ -15,6 +15,7 @@
 #include <linux/module.h>
 #include <linux/tracepoint.h>
 #include <trace/events/sched.h>
+#include <linux/pm_qos.h>
 #include <trace/events/power.h>
 #include <linux/dma-mapping.h>
 
@@ -68,6 +69,11 @@ struct met_api_tbl {
 	int (*met_reg_clk_tree)(void *fp);
 	void (*met_sched_switch)(struct task_struct *prev,
 				 struct task_struct *next);
+	void (*met_pm_qos_update_request)(int pm_qos_class,
+			s32 value, char *owner);
+	void (*met_pm_qos_update_target)(unsigned int action,
+		int prev_value, int curr_value);
+
 	int (*enable_met_backlight_tag)(void);
 	int (*output_met_backlight_tag)(int level);
 };
@@ -248,6 +254,46 @@ void met_unreg_switch(void)
 	MET_UNREGISTER_TRACE(sched_switch);
 }
 EXPORT_SYMBOL(met_unreg_switch);
+
+MET_DEFINE_PROBE(pm_qos_update_request,
+	TP_PROTO(int pm_qos_class, s32 value, char *owner))
+{
+	if (met_ext_api.met_pm_qos_update_request)
+		met_ext_api.met_pm_qos_update_request(pm_qos_class,
+			value, owner);
+}
+
+MET_DEFINE_PROBE(pm_qos_update_target,
+	TP_PROTO(enum pm_qos_req_action action, int prev_value, int curr_value))
+{
+	if (met_ext_api.met_pm_qos_update_target)
+		met_ext_api.met_pm_qos_update_target((unsigned int)action,
+			prev_value, curr_value);
+}
+
+int met_reg_event_power(void)
+{
+	do {
+		if (MET_REGISTER_TRACE(pm_qos_update_request)) {
+			pr_debug("can not register callback of pm_qos_update_request\n");
+			return -ENODEV;
+		}
+		if (MET_REGISTER_TRACE(pm_qos_update_target)) {
+			pr_debug("can not register callback of pm_qos_update_target\n");
+			MET_UNREGISTER_TRACE(pm_qos_update_request);
+			return -ENODEV;
+		}
+	} while (0);
+	return 0;
+}
+EXPORT_SYMBOL(met_reg_event_power);
+
+void met_unreg_event_power(void)
+{
+	MET_UNREGISTER_TRACE(pm_qos_update_request);
+	MET_UNREGISTER_TRACE(pm_qos_update_target);
+}
+EXPORT_SYMBOL(met_unreg_event_power);
 
 #if	defined(CONFIG_MET_ARM_32BIT)
 void met_get_cpuinfo(int cpu, struct cpuinfo_arm **cpuinfo)

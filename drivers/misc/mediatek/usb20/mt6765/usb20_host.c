@@ -19,6 +19,10 @@
 #include <linux/list.h>
 #include <linux/gpio.h>
 #include <linux/io.h>
+#ifdef ODM_HQ_EDIT
+/*Hanxing.Duan@ODM.HQ.BSP.USB.OTG 2019.01.17 ADD for OTG*/
+#include <linux/of_gpio.h>
+#endif /*ODM_HQ_EDIT*/
 #include "musb_core.h"
 #include <linux/platform_device.h>
 #include "musbhsdma.h"
@@ -80,6 +84,15 @@ static struct charger_device *primary_charger;
 
 struct device_node		*usb_node;
 static int iddig_eint_num;
+#ifdef ODM_HQ_EDIT
+/*Hanxing.Duan@ODM.HQ.BSP.USB.OTG 2019.01.17 add for OTG*/
+static int iddig_pin;
+static struct pinctrl * pinctrl;
+static struct pinctrl_state * pinctrl_high;
+static struct pinctrl_state * pinctrl_low;
+static int iddig_pin_state;
+static void otg_request_irq(void);
+#endif /*ODM_HQ_EDIT*/
 static ktime_t ktime_start, ktime_end;
 
 static struct musb_fifo_cfg fifo_cfg_host[] = {
@@ -181,7 +194,9 @@ static void _set_vbus(int is_on)
 #endif
 	}
 }
-
+#ifdef ODM_HQ_EDIT
+#ifdef CONFIG_TCPC_CLASS
+/*Hanxing.Duan@ODM.HQ.BSP.USB 2018.11.29  add TCPC_CLASS control typec code*/
 static void do_vbus_work(struct work_struct *data)
 {
 	struct mt_usb_work *work =
@@ -229,6 +244,9 @@ static void mt_usb_vbus_off(int delay)
 	DBG(0, "vbus_off\n");
 	issue_vbus_work(VBUS_OPS_OFF, delay);
 }
+
+#endif /*CONFIG_TCPC_CLASS*/
+#endif /*ODM_HQ_EDIT*/
 
 void mt_usb_set_vbus(struct musb *musb, int is_on)
 {
@@ -292,6 +310,7 @@ static void issue_host_work(int ops, int delay, bool on_st)
 	if (!work) {
 		DBG(0, "work is NULL, directly return\n");
 		return;
+
 	}
 	work->ops = ops;
 	INIT_DELAYED_WORK(&work->dwork, do_host_work);
@@ -447,6 +466,35 @@ void switch_int_to_host(struct musb *musb)
 	enable_irq(iddig_eint_num);
 	DBG(0, "switch_int_to_host is done\n");
 }
+
+#ifdef ODM_HQ_EDIT
+/*Hanxing.Duan@ODM.HQ.BSP.USB.OTG 2018.12.20 add otg_switch func*/
+extern int otg_switch;
+extern int otg_online;
+void otg_switch_mode(int value)
+{
+	if (value == 1)
+	{
+		otg_request_irq();
+		enable_irq(iddig_eint_num);
+		iddig_pin_state = __gpio_get_value(iddig_pin);
+		pr_err("iddig_pin1 = %d\n",iddig_pin_state);
+	}
+	else if (value == 0)
+	{
+		disable_irq(iddig_eint_num);
+		if (otg_online == 1)
+		{
+			mt_usb_host_disconnect(0);
+			iddig_req_host = false;
+		}
+		free_irq(iddig_eint_num, NULL);
+		pinctrl_select_state(pinctrl,pinctrl_low);
+		iddig_pin_state = __gpio_get_value(iddig_pin);
+		pr_err("iddig_pin12 = %d\n",iddig_pin_state);
+	}
+}
+#endif /*ODM_HQ_EDIT*/
 
 static void do_host_plug_test_work(struct work_struct *data)
 {
@@ -698,26 +746,86 @@ static const struct of_device_id otg_iddig_of_match[] = {
 	{},
 };
 
-static int otg_iddig_probe(struct platform_device *pdev)
+#ifdef ODM_HQ_EDIT
+/*Hanxing.Duan@ODM.HQ.BSP.CHG.Basic 2018.12.04 add is_otg file node*/
+static ssize_t mt_usb_show_is_otg(struct device *dev,
+				struct device_attribute *attr, char *buf)
+{
+	if (!dev) {
+		DBG(0, "dev is null!!\n");
+		return 0;
+	}
+	return scnprintf(buf, PAGE_SIZE, "%d\n", iddig_req_host);
+}
+
+DEVICE_ATTR(is_otg, 0444, mt_usb_show_is_otg, NULL);
+
+/*Hanxing.Duan@ODM.HQ.BSP.USB.OTG 2019.1.17 add for OTG*/
+static void otg_request_irq(void)
 {
 	int ret;
-	struct device *dev = &pdev->dev;
-	struct device_node *node = dev->of_node;
-
-	iddig_eint_num = irq_of_parse_and_map(node, 0);
-	DBG(0, "iddig_eint_num<%d>\n", iddig_eint_num);
-	if (iddig_eint_num < 0)
-		return -ENODEV;
-
+	pinctrl_select_state(pinctrl,pinctrl_high);
+	iddig_eint_num = __gpio_to_irq(iddig_pin);
 	ret = request_irq(iddig_eint_num, mt_usb_ext_iddig_int,
 					IRQF_TRIGGER_LOW, "USB_IDDIG", NULL);
 	if (ret) {
 		DBG(0,
 			"request EINT <%d> fail, ret<%d>\n",
-			iddig_eint_num, ret);
-		return ret;
+	 		iddig_eint_num, ret);
+		pinctrl_select_state(pinctrl,pinctrl_low);
+		return;
 	}
+}
+#endif /*ODM_HQ_EIDT*/
 
+static int otg_iddig_probe(struct platform_device *pdev)
+{
+
+#ifndef ODM_HQ_EDIT
+/*Hanxing.Duan@ODM.HQ.BSP.USB.Basic 2019.01.16 Delet for otg*/
+	int ret;
+#endif /*ODM_HQ_EDIT*/
+	struct device *dev = &pdev->dev;
+	struct device_node *node = dev->of_node;
+
+#ifndef ODM_HQ_EDIT
+/*Hanxing.Duan@ODM.HQ.BSP.USB.Basic 2019.01.16 Delet for otg*/
+	iddig_eint_num = irq_of_parse_and_map(node, 0);
+	DBG(0, "iddig_eint_num<%d>\n", iddig_eint_num);
+	if (iddig_eint_num < 0)
+		return -ENODEV;
+#endif /*ODM_HQ_EDIT*/
+
+#ifdef ODM_HQ_EDIT
+/*Hanxing.Duan@ODM.HQ.BSP.CHG.Basic 2018.12.04 add for OTG*/
+	device_create_file(mtk_musb->controller, &dev_attr_is_otg);
+	iddig_pin = of_get_named_gpio(node, "usbid-gpio", 0);
+	pr_err("iddig_pin = %d\n",iddig_pin);
+	if (iddig_pin < 0)
+		return -ENODEV;
+	pinctrl = devm_pinctrl_get(dev);
+	if (IS_ERR(pinctrl))
+	{
+		pr_err("get pinctrl fail\n");
+		return -ENXIO;
+	}
+	pinctrl_high = pinctrl_lookup_state(pinctrl,"iddig_init");
+	if (IS_ERR(pinctrl_high))
+	{
+		pr_err("get pinctrl_init fail\n");
+		return -ENXIO;
+	}
+	pinctrl_low = pinctrl_lookup_state(pinctrl,"iddig_low");
+	if (IS_ERR(pinctrl_low))
+	{
+		pr_err("get pinctrl_low fail\n");
+		return -ENXIO;
+	}
+	if (otg_switch == 1)
+		otg_request_irq();
+	else
+		pinctrl_select_state(pinctrl,pinctrl_low);
+#endif /*ODM_HQ_EIDT*/
 	return 0;
 }
 

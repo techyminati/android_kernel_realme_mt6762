@@ -18,7 +18,6 @@
 #define OPP_UNREQ -1
 #endif
 #include <mt-plat/mtk_chip.h>
-#include <mtk_dramc.h>
 
 #if defined(SMI_VIN)
 #include "mmdvfs_config_mt6758.h"
@@ -28,6 +27,8 @@
 #include "mmdvfs_config_mt6761.h"
 #elif defined(SMI_EIG)
 #include "mmdvfs_config_mt3967.h"
+#elif defined(SMI_LAF)
+#include "mmdvfs_config_mt6779.h"
 #endif
 
 #include "mmdvfs_mgr.h"
@@ -38,6 +39,7 @@
 
 #ifdef USE_DDR_TYPE
 #include "mt_emi_api.h"
+#include <mtk_dramc.h>
 #endif
 #include "mmdvfs_pmqos.h"
 
@@ -87,6 +89,17 @@ struct mmdvfs_step_util mmdvfs_step_util_obj_mt3967 = {
 	MMDVFS_SCEN_COUNT,
 	{0},
 	MT3967_MMDVFS_OPP_MAX,
+	MMDVFS_FINE_STEP_OPP0,
+	mmdvfs_step_util_init,
+	mmdvfs_step_util_set_step,
+};
+
+#elif defined(SMI_LAF)
+struct mmdvfs_step_util mmdvfs_step_util_obj_mt6779 = {
+	{0},
+	MMDVFS_SCEN_COUNT,
+	{0},
+	MT6779_MMDVFS_OPP_MAX,
 	MMDVFS_FINE_STEP_OPP0,
 	mmdvfs_step_util_init,
 	mmdvfs_step_util_set_step,
@@ -197,6 +210,24 @@ struct mmdvfs_adaptor mmdvfs_adaptor_obj_mt3967 = {
 	NULL, 0,
 	NULL, 0,
 	mt3967_step_profile, MT3967_MMDVFS_OPP_MAX,
+	0,
+	mmdvfs_profile_dump,
+	mmdvfs_single_hw_config_dump,
+	mmdvfs_hw_config_dump,
+	mmdvfs_determine_step,
+	mmdvfs_apply_hw_config,
+	mmdvfs_apply_vcore_hw_config,
+	mmdvfs_apply_clk_hw_config,
+	mmdvfs_get_cam_sys_clk,
+	mmdvfs_single_profile_dump,
+};
+
+#elif defined(SMI_LAF)
+struct mmdvfs_adaptor mmdvfs_adaptor_obj_mt6779 = {
+	0, 0, 0, 0,
+	NULL, 0,
+	NULL, 0,
+	mt6779_step_profile, MT6779_MMDVFS_OPP_MAX,
 	0,
 	mmdvfs_profile_dump,
 	mmdvfs_single_hw_config_dump,
@@ -925,6 +956,13 @@ void mmdvfs_config_util_init(void)
 #if defined(SMI_EIG)
 		g_mmdvfs_adaptor = &mmdvfs_adaptor_obj_mt3967;
 		g_mmdvfs_step_util = &mmdvfs_step_util_obj_mt3967;
+		g_mmdvfs_threshandler = &mmdvfs_thres_handler_obj;
+#endif
+		break;
+	case MMDVFS_PROFILE_LAF:
+#if defined(SMI_LAF)
+		g_mmdvfs_adaptor = &mmdvfs_adaptor_obj_mt6779;
+		g_mmdvfs_step_util = &mmdvfs_step_util_obj_mt6779;
 		g_mmdvfs_threshandler = &mmdvfs_thres_handler_obj;
 #endif
 		break;

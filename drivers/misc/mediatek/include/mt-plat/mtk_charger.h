@@ -33,6 +33,10 @@ enum {
 	CHARGER_NOTIFY_STOP_CHARGING,
 	CHARGER_NOTIFY_ERROR,
 	CHARGER_NOTIFY_NORMAL,
+#ifdef ODM_HQ_EDIT
+/*Hanxing.Duan@ODM.HQ.BSP.CHG.Basic 2019.01.31 add plug out status*/
+	CHARGER_NOTIFY_PLUG_OUT,
+#endif /*ODM_HQ_EDIT*/
 };
 
 enum {
@@ -49,6 +53,15 @@ struct charger_consumer {
 	bool hv_charging_disabled;
 };
 
+#ifdef ODM_HQ_EDIT
+/*Hanxing.Duan@ODM.HQ.BSP.CHG.Basic 2018.12.11 add cust control API*/
+#define CONTROL_CHARGER_ENABLE 0X1
+#define DIS_CONTROL_CHARGER_ENABLE 0XFE
+#define CONTROL_INPUT_LIMIT 0X2
+#define DIS_CONTROL_INPUT_LIMIT 0XFD
+#define CONTROL_CHARGER_LIMIT 0X4
+#define DIS_CONTROL_CHARGER_LIMIT 0XFB
+#endif /*ODM_HQ_EDIT*/
 /* ============================================= */
 /* The following are charger consumer interfaces */
 /* ============================================= */

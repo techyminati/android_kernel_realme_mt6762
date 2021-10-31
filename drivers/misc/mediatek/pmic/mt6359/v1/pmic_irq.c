@@ -21,9 +21,7 @@
 #include <linux/mutex.h>
 #include <linux/of_irq.h>
 #include <linux/sched.h>
-#if defined(CONFIG_MTK_AEE_FEATURE)
-#include <mt-plat/aee.h>
-#endif
+#include <linux/workqueue.h>
 #include <mt-plat/upmu_common.h>
 #include <mt-plat/mtk_reboot.h>
 #ifdef CONFIG_MTK_PMIC_WRAP_HAL
@@ -35,10 +33,12 @@
 #include "include/pmic_throttling_dlpt.h"
 #include "include/pmic_debugfs.h"
 
+#if defined(CONFIG_MTK_AEE_FEATURE)
+#include <mt-plat/aee.h>
+#endif
 #if defined(CONFIG_MTK_KERNEL_POWER_OFF_CHARGING)
 #include <mt-plat/mtk_boot_common.h>
 #endif
-
 #if defined(CONFIG_MTK_CCCI_DEVICES)
 #include <mt-plat/mtk_ccci_common.h>
 #endif
@@ -47,6 +47,336 @@
 int g_pmic_irq;
 
 /* Interrupt Setting */
+
+#ifdef VENDOR_EDIT
+/* ChaoYing.Chen@BSP.Power.Basic.1056413, 2017/12/11, Add for print wakeup source */
+unsigned int g_eint_pmic_num = 193;
+
+#define PMIC_INT_REG_WIDTH  16
+#define PMIC_INT_REG_NUMBER  16
+u64 pmic_wakesrc_x_count[PMIC_INT_REG_NUMBER][PMIC_INT_REG_WIDTH] = {
+	 { 0 },
+	 { 0 },
+	 { 0 },
+	 { 0 },
+	 { 0 },
+	 { 0 },
+	 { 0 },
+	 { 0 },
+	 { 0 },
+	 { 0 },
+	 { 0 },
+	 { 0 },
+	 { 0 },
+	 { 0 },
+	 { 0 },
+	 { 0 },
+};
+
+const char *pmic_interrupt_status_name[PMIC_INT_REG_NUMBER][PMIC_INT_REG_WIDTH] = {
+	{
+	[0] = " INT_VPU_OC",
+	[1] = " INT_VCORE_OC",
+	[2] = " INT_VGPU11_OC",
+	[3] = " INT_VGPU12_OC",
+	[4] = " INT_VMODEM_OC",
+	[5] = " INT_VPROC1_OC",
+	[6] = " INT_VPROC2_OC",
+	[7] = " INT_VS1_OC",
+	[8] = " INT_VS2_OC",
+	[9] = " INT_VPA_OC",
+	[10] = " ",
+	[11] = " ",
+	[12] = " ",
+	[13] = " ",
+	[14] = " ",
+	[15] = " ",
+
+	},
+	{
+	[0] = " ",
+	[1] = " ",
+	[2] = " ",
+	[3] = " ",
+	[4] = " ",
+	[5] = " ",
+	[6] = " ",
+	[7] = " ",
+	[8] = " ",
+	[9] = " ",
+	[10] = " ",
+	[11] = " ",
+	[12] = " ",
+	[13] = " ",
+	[14] = " ",
+	[15] = " ",
+	},
+	{
+	[0] = " INT_VFE28_OC",
+	[1] = " INT_VXO22_OC",
+	[2] = " INT_VRF18_OC",
+	[3] = " INT_VRF12_OC",
+	[4] = " INT_VEFUSE_OC",
+	[5] = " INT_VCN33_1_OC",
+	[6] = " INT_VCN33_2_OC",
+	[7] = " INT_VCN13_OC",
+	[8] = " INT_VCN18_OC",
+	[9] = " INT_VA09_OC",
+	[10] = " INT_VCAMIO_OC",
+	[11] = " INT_VA12_OC",
+	[12] = " INT_VAUX18_OC",
+	[13] = " INT_VAUD18_OC",
+	[14] = " INT_VIO18_OC",
+	[15] = " INT_VSRAM_PROC1_OC",
+	},
+	{
+	[0] = " INT_VSRAM_PROC2_OC",
+	[1] = " INT_VSRAM_OTHERS_OC",
+	[2] = " INT_VSRAM_MD_OC",
+	[3] = " INT_VEMC_OC",
+	[4] = " INT_VSIM1_OC",
+	[5] = " INT_VSIM2_OC",
+	[6] = " INT_VUSB_OC",
+	[7] = " INT_VRFCK_OC",
+	[8] = " INT_VBBCK_OC",
+	[9] = " INT_VBIF28_OC",
+	[10] = " INT_VIBR_OC",
+	[11] = " INT_VIO28_OC",
+	[12] = " INT_VM18_OC",
+	[13] = " INT_VUFS_OC",
+	[14] = " ",
+	[15] = " ",
+	},
+	{
+	[0] = " INT_PWRKEY",
+	[1] = " INT_HOMEKEY",
+	[2] = " INT_PWRKEY_R",
+	[3] = " INT_HOMEKEY_R",
+	[4] = " INT_NI_LBAT_INT",
+	[5] = " INT_CHRDET",
+	[6] = " INT_CHRDET_EDGE",
+	[7] = " ",
+	[8] = " ",
+	[9] = " ",
+	[10] = " ",
+	[11] = " ",
+	[12] = " ",
+	[13] = " ",
+	[14] = " ",
+	[15] = " ",
+	},
+	{
+	[0] = " ",
+	[1] = " ",
+	[2] = " ",
+	[3] = " ",
+	[4] = " ",
+	[5] = " ",
+	[6] = " ",
+	[7] = " ",
+	[8] = " ",
+	[9] = " ",
+	[10] = " ",
+	[11] = " ",
+	[12] = " ",
+	[13] = " ",
+	[14] = " ",
+	[15] = " ",
+	},
+	{
+	[0] = " INT_RTC",
+	[1] = " ",
+	[2] = " ",
+	[3] = " ",
+	[4] = " ",
+	[5] = " ",
+	[6] = " ",
+	[7] = " ",
+	[8] = " ",
+	[9] = " ",
+	[10] = " ",
+	[11] = " ",
+	[12] = " ",
+	[13] = " ",
+	[14] = " ",
+	[15] = " ",
+	},
+	{
+	[0] = " ",
+	[1] = " ",
+	[2] = " ",
+	[3] = " ",
+	[4] = " ",
+	[5] = " ",
+	[6] = " ",
+	[7] = " ",
+	[8] = " ",
+	[9] = " ",
+	[10] = " ",
+	[11] = " ",
+	[12] = " ",
+	[13] = " ",
+	[14] = " ",
+	[15] = " ",
+	},
+	{
+	[0] = " INT_FG_BAT_H",
+	[1] = " INT_FG_BAT_L",
+	[2] = " INT_FG_CUR_L",
+	[3] = " INT_FG_ZCV",
+	[4] = " ",
+	[5] = " ",
+	[6] = " INT_FG_N_CHARGE_L",
+	[7] = " INT_FG_IAVG_H",
+	[8] = " INT_FG_IAVG_L",
+	[9] = " ",
+	[10] = " INT_FG_DISCHARGE",
+	[11] = " INT_FG_CHARGE",
+	[12] = " ",
+	[13] = " ",
+	[14] = " ",
+	[15] = " ",
+	},
+	{
+	[0] = " INT_BATON_LV",
+	[1] = " ",
+	[2] = " INT_BATON_BAT_IN",
+	[3] = " INT_BATON_BAT_OUT",
+	[4] = " INT_BIF",
+	[5] = " ",
+	[6] = " ",
+	[7] = " ",
+	[8] = " ",
+	[9] = " ",
+	[10] = " ",
+	[11] = " ",
+	[12] = " ",
+	[13] = " ",
+	[14] = " ",
+	[15] = " ",
+	},
+	{
+	[0] = " INT_BAT_H",
+	[1] = " INT_BAT_L",
+	[2] = " INT_BAT2_H",
+	[3] = " INT_BAT2_L",
+	[4] = " INT_BAT_TEMP_H",
+	[5] = " INT_BAT_TEMP_L",
+	[6] = " INT_THR_H",
+	[7] = " INT_THR_L",
+	[8] = " INT_AUXADC_IMP",
+	[9] = " INT_NAG_C_DLTV",
+	[10] = " ",
+	[11] = " ",
+	[12] = " ",
+	[13] = " ",
+	[14] = " ",
+	[15] = " ",
+	},
+	{
+	[0] = " ",
+	[1] = " ",
+	[2] = " ",
+	[3] = " ",
+	[4] = " ",
+	[5] = " ",
+	[6] = " ",
+	[7] = " ",
+	[8] = " ",
+	[9] = " ",
+	[10] = " ",
+	[11] = " ",
+	[12] = " ",
+	[13] = " ",
+	[14] = " ",
+	[15] = " ",
+	},
+	{
+	[0] = " INT_AUDIO",
+	[1] = " ",
+	[2] = " ",
+	[3] = " ",
+	[4] = " ",
+	[5] = " INT_ACCDET",
+	[6] = " INT_ACCDET_EINT0",
+	[7] = " INT_ACCDET_EINT1",
+	[8] = " ",
+	[9] = " ",
+	[10] = " ",
+	[11] = " ",
+	[12] = " ",
+	[13] = " ",
+	[14] = " ",
+	[15] = " ",
+	},
+		{
+	[0] = " ",
+	[1] = " ",
+	[2] = " ",
+	[3] = " ",
+	[4] = " ",
+	[5] = " ",
+	[6] = " ",
+	[7] = " ",
+	[8] = " ",
+	[9] = " ",
+	[10] = " ",
+	[11] = " ",
+	[12] = " ",
+	[13] = " ",
+	[14] = " ",
+	[15] = " ",
+	},
+	{
+	[0] = " INT_SPI_CMD_ALERT",
+	[1] = " ",
+	[2] = " ",
+	[3] = " ",
+	[4] = " ",
+	[5] = " ",
+	[6] = " ",
+	[7] = " ",
+	[8] = " ",
+	[9] = " ",
+	[10] = " ",
+	[11] = " ",
+	[12] = " ",
+	[13] = " ",
+	[14] = " ",
+	[15] = " ",
+	},
+	{
+	[0] = " ",
+	[1] = " ",
+	[2] = " ",
+	[3] = " ",
+	[4] = " ",
+	[5] = " ",
+	[6] = " ",
+	[7] = " ",
+	[8] = " ",
+	[9] = " ",
+	[10] = " ",
+	[11] = " ",
+	[12] = " ",
+	[13] = " ",
+	[14] = " ",
+	[15] = " ",
+	},
+};
+void mt_pmic_clear_wakesrc_count(void)
+{
+	int i = 0;
+	int j = 0;
+
+	for (i = 0; i < PMIC_INT_REG_NUMBER; i++){
+		for (j = 0; j < PMIC_INT_REG_WIDTH; j++){
+			pmic_wakesrc_x_count[i][j] = 0;
+		}
+	}
+}
+EXPORT_SYMBOL(mt_pmic_clear_wakesrc_count);
+#endif /* VENDOR_EDIT */
 static struct pmic_sp_irq buck_irqs[][PMIC_INT_WIDTH] = {
 	{
 		PMIC_SP_IRQ_GEN(1, 1, INT_VPU_OC),
@@ -264,6 +594,38 @@ struct pmic_sp_interrupt sp_interrupts[] = {
 
 unsigned int sp_interrupt_size = ARRAY_SIZE(sp_interrupts);
 
+#ifdef VENDOR_EDIT
+/* ChaoYing.Chen@BSP.Power.Basic.1056413, 2017/12/11, Add for print wakeup source */
+int pmic_int_check(char * wakeup_name)
+{
+	unsigned int spNo, sp_conNo, j;
+	unsigned int status_reg;
+	unsigned int sp_int_status = 0;
+	int ret = -1;
+
+	for (spNo = 0; spNo < ARRAY_SIZE(sp_interrupts); spNo++) {
+		for (sp_conNo = 0; sp_conNo < sp_interrupts[spNo].con_len; sp_conNo++) {
+			status_reg = sp_interrupts[spNo].status + 0x6 * sp_conNo;
+			sp_int_status = upmu_get_reg_value(status_reg);
+			IRQLOG("[PMIC_INT] after, Reg[0x%x]=0x%x\n", status_reg, sp_int_status);
+
+       		for (j = 0; j < PMIC_INT_WIDTH; j++) {
+				if ((sp_int_status) & (1 << j)) {
+					IRQLOG("[PMIC_INT][%s]\n", sp_interrupts[spNo].sp_irqs[sp_conNo][j].name);
+					strcpy(wakeup_name, sp_interrupts[spNo].sp_irqs[sp_conNo][j].name);
+
+					ret = (2*spNo+sp_conNo)*j;
+					pmic_wakesrc_x_count[2*spNo+sp_conNo][j]++;
+				}
+			}
+		}
+	}
+	return ret;
+}
+
+EXPORT_SYMBOL(pmic_int_check);
+#endif /* VENDOR_EDIT */
+
 static unsigned int get_spNo(enum PMIC_IRQ_ENUM intNo)
 {
 	if (intNo >= SP_BUCK_TOP_START && intNo < SP_LDO_TOP_START)
@@ -339,9 +701,60 @@ void homekey_int_handler_r(void)
 #endif
 }
 
-#if ENABLE_ALL_OC_IRQ
-static unsigned int vio18_oc_times;
+struct oc_int_work_t {
+	int oc_intNo;
+	const char *name;
+	struct work_struct work;
+};
 
+static DEFINE_MUTEX(oc_int_mutex);
+static struct oc_int_work_t g_oc_work;
+
+static void oc_int_work(struct work_struct *work)
+{
+	const char *name;
+	int intNo;
+	int enable_reg, oc_reg;
+	unsigned int spNo, sp_conNo, sp_irqNo;
+	struct oc_int_work_t *oc_work =
+		container_of(work, struct oc_int_work_t, work);
+
+	mutex_lock(&oc_int_mutex);
+	intNo = oc_work->oc_intNo;
+	name = oc_work->name;
+	mutex_unlock(&oc_int_mutex);
+	if (pmic_check_intNo(intNo, &spNo, &sp_conNo, &sp_irqNo)) {
+		pr_notice(PMICTAG "[%s] fail intNo=%d\n", __func__, intNo);
+		return;
+	}
+	switch (intNo) {
+	case INT_VBIF28_OC:
+		enable_reg = PMIC_RG_LDO_VBIF28_EN;
+		oc_reg = PMIC_RGS_VBIF28_OC_STATUS;
+		break;
+	case INT_VIO28_OC:
+		enable_reg = PMIC_RG_LDO_VIO28_EN;
+		oc_reg = PMIC_RGS_VIO28_OC_STATUS;
+		break;
+	default:
+		pr_notice(PMICTAG "[%s] %s no need to handle\n",
+			__func__, oc_work->name);
+		return;
+	}
+	while (pmic_get_register_value(oc_reg)) {
+		pmic_set_register_value(enable_reg, 0);
+		msleep(1000);
+		pmic_set_register_value(enable_reg, 1);
+		mdelay(1);
+	}
+	mdelay(5);
+	upmu_set_reg_value((sp_interrupts[spNo].status + 0x2 * sp_conNo),
+			   1 << sp_irqNo);
+	pmic_enable_interrupt(intNo, 1, "PMIC");
+	pr_info("[%s] %s is resolved\n", __func__, name);
+}
+
+#if ENABLE_ALL_OC_IRQ
 /* General OC Int Handler */
 static void oc_int_handler(enum PMIC_IRQ_ENUM intNo, const char *int_name)
 {
@@ -359,12 +772,28 @@ static void oc_int_handler(enum PMIC_IRQ_ENUM intNo, const char *int_name)
 
 	IRQLOG("[%s] int name=%s\n", __func__, int_name);
 	switch (intNo) {
+	case INT_VBIF28_OC:
+	case INT_VIO28_OC:
+		pmic_enable_interrupt(intNo, 0, "PMIC");
+		g_oc_work.oc_intNo = intNo;
+		g_oc_work.name = int_name;
+		schedule_work(&g_oc_work.work);
+		break;
 	case INT_VCN33_1_OC:
 	case INT_VCN33_2_OC:
+	case INT_VA12_OC:
+	case INT_VUSB_OC:
 		/* keep OC interrupt and keep tracking */
 		pr_notice(PMICTAG "[PMIC_INT] PMIC OC: %s\n", int_name);
+		if (times >= 10) {
+			pmic_enable_interrupt(intNo, 0, "PMIC");
+			pr_notice("disable OC interrupt: %s\n", int_name);
+		}
 		break;
 	case INT_VIO18_OC:
+		pr_notice("VIO18_PG_DEB=%d,RGS_VIO18_PG_STATUS=%d\n",
+			pmic_get_register_value(PMIC_VIO18_PG_DEB),
+			pmic_get_register_value(PMIC_RGS_VIO18_PG_STATUS));
 		pr_notice("RG_INT_EN_VIO18_OC=0x%x\n",
 			pmic_get_register_value(PMIC_RG_INT_EN_VIO18_OC));
 		pr_notice("RG_INT_MASK_VIO18_OC=0x%x\n",
@@ -374,12 +803,18 @@ static void oc_int_handler(enum PMIC_IRQ_ENUM intNo, const char *int_name)
 		pr_notice("RG_INT_RAW_STATUS_VIO18_OC=0x%x\n",
 			pmic_get_register_value(
 				PMIC_RG_INT_RAW_STATUS_VIO18_OC));
-		pr_notice("DA_VIO18_OCFB_EN=0x%x\n",
-			pmic_get_register_value(PMIC_DA_VIO18_OCFB_EN));
-		pr_notice("RG_LDO_VIO18_OCFB_EN=0x%x\n",
-			pmic_get_register_value(PMIC_RG_LDO_VIO18_OCFB_EN));
-		vio18_oc_times++;
-		if (vio18_oc_times >= 2) {
+		pr_notice("LDO_VIO18_CON0=0x%x,LDO_VIO18_MON=0x%x\n",
+			upmu_get_reg_value(MT6359_LDO_VIO18_CON0),
+			upmu_get_reg_value(MT6359_LDO_VIO18_MON));
+		pr_notice("LDO_VIO18_OP_EN=0x%x,LDO_VIO18_OP_CFG=0x%x\n",
+			upmu_get_reg_value(MT6359_LDO_VIO18_OP_EN),
+			upmu_get_reg_value(MT6359_LDO_VIO18_OP_CFG));
+		pr_notice("VIO18_ANA_CON0=0x%x,VIO18_ANA_CON1=0x%x\n",
+			upmu_get_reg_value(MT6359_VIO18_ANA_CON0),
+			upmu_get_reg_value(MT6359_VIO18_ANA_CON1));
+		pr_notice("XO_FPM_ISEL_M=0x%x\n",
+			pmic_get_register_value(PMIC_XO_FPM_ISEL_M));
+		if (times >= 2) {
 #if defined(CONFIG_MTK_AEE_FEATURE)
 			snprintf(oc_str, 30, "PMIC OC:%s", int_name);
 			aee_kernel_warning(
@@ -393,16 +828,18 @@ static void oc_int_handler(enum PMIC_IRQ_ENUM intNo, const char *int_name)
 		break;
 	default:
 		/* issue AEE exception and disable OC interrupt */
-		kernel_dump_exception_reg();
+		if (times >= 3) {
+			kernel_dump_exception_reg();
 #if defined(CONFIG_MTK_AEE_FEATURE)
-		snprintf(oc_str, 30, "PMIC OC:%s", int_name);
-		aee_kernel_warning(oc_str,
-			"\nCRDISPATCH_KEY:PMIC OC\nOC Interrupt: %s",
-			int_name);
+			snprintf(oc_str, 30, "PMIC OC:%s", int_name);
+			aee_kernel_warning(
+				oc_str,
+				"\nCRDISPATCH_KEY:PMIC OC\nOC Interrupt: %s",
+				int_name);
 #endif
-		pmic_enable_interrupt(intNo, 0, "PMIC");
-		pr_notice(PMICTAG "[PMIC_INT] disable OC interrupt: %s\n"
-			, int_name);
+			pmic_enable_interrupt(intNo, 0, "PMIC");
+			pr_notice("disable OC interrupt: %s\n", int_name);
+		}
 		break;
 	}
 }
@@ -416,13 +853,29 @@ static void md_oc_int_handler(enum PMIC_IRQ_ENUM intNo, const char *int_name)
 	char oc_str[30] = "";
 #endif
 #endif
+	unsigned int spNo, sp_conNo, sp_irqNo;
+	unsigned int times;
 
+	if (pmic_check_intNo(intNo, &spNo, &sp_conNo, &sp_irqNo)) {
+		pr_notice(PMICTAG "[%s] fail intNo=%d\n", __func__, intNo);
+		return;
+	}
+	times = sp_interrupts[spNo].sp_irqs[sp_conNo][sp_irqNo].times;
 	switch (intNo) {
 	case INT_VPA_OC:
 		data_int32 = 1 << 0;
 		break;
 	case INT_VFE28_OC:
 		data_int32 = 1 << 1;
+		pr_notice("Reg[0x1B8A]=0x%x,Reg[0x1B88]=0x%x,Reg[0x1B8C]=0x%x,Reg[0x1B92]=0x%x\n"
+			, upmu_get_reg_value(0x1B8A),
+			upmu_get_reg_value(0x1B88),
+			upmu_get_reg_value(0x1B8C),
+			upmu_get_reg_value(0x1B92));
+		if (times >= 10) {
+			pmic_enable_interrupt(intNo, 0, "PMIC");
+			pr_notice("disable OC interrupt: %s\n", int_name);
+		}
 		break;
 	case INT_VRF12_OC:
 		data_int32 = 1 << 2;
@@ -497,10 +950,18 @@ void pmic_enable_interrupt(enum PMIC_IRQ_ENUM intNo, unsigned int en, char *str)
 		, spNo, sp_conNo, sp_irqNo);
 	IRQLOG("[%s] Reg[0x%x]=0x%x\n"
 		, __func__, enable_reg, upmu_get_reg_value(enable_reg));
+#if 0
 	if (en == 1)
 		pmic_config_interface(enable_reg + 0x2, 0x1, 0x1, sp_irqNo);
 	else if (en == 0)
 		pmic_config_interface(enable_reg + 0x4, 0x1, 0x1, sp_irqNo);
+#else
+	/* PMIC MT6359 miss LDO_INT_CON1_SET/CLR, use LDO_INT_CON1 */
+	if (en == 1)
+		pmic_config_interface(enable_reg, 1, 0x1, sp_irqNo);
+	else if (en == 0)
+		pmic_config_interface(enable_reg, 0, 0x1, sp_irqNo);
+#endif
 	IRQLOG("[%s] after, Reg[0x%x]=0x%x\n", __func__,
 		enable_reg, upmu_get_reg_value(enable_reg));
 }
@@ -785,6 +1246,10 @@ void PMIC_EINT_SETTING(struct platform_device *pdev)
 	unsigned int enable_reg;
 	struct device_node *node = pdev->dev.of_node;
 
+	/* MT6359 disable VIO18_PG to debug VIO18 OC, must check!! */
+	pmic_set_register_value(PMIC_RG_STRUP_VIO18_PG_ENB, 0x1);
+	pmic_set_register_value(PMIC_RG_STRUP_VIO18_OC_ENB, 0x0);
+
 	/* unmask PMIC TOP interrupt */
 	pmic_set_register_value(PMIC_TOP_INT_MASK_CON0_CLR, 0x1FF);
 
@@ -822,6 +1287,8 @@ void PMIC_EINT_SETTING(struct platform_device *pdev)
 		enable_irq_wake(g_pmic_irq);
 	} else
 		pr_notice(PMICTAG "can't find compatible node\n");
+
+	INIT_WORK(&g_oc_work.work, oc_int_work);
 }
 
 /*****************************************************************************
@@ -848,7 +1315,8 @@ static int list_pmic_irq(struct seq_file *s)
 
 	seq_printf(s, "Num: %20s, %8s, event times\n", "INT Name", "Status");
 	for (i = 0; i < INT_ENUM_MAX; i++) {
-		pmic_check_intNo(i, &spNo, &sp_conNo, &sp_irqNo);
+		if (pmic_check_intNo(i, &spNo, &sp_conNo, &sp_irqNo))
+			continue;
 		en = upmu_get_reg_value(sp_interrupts[spNo].enable +
 						0x6 * sp_conNo);
 		mask = upmu_get_reg_value(sp_interrupts[spNo].mask +
@@ -884,7 +1352,8 @@ static int list_enabled_pmic_irq(struct seq_file *s)
 
 	seq_printf(s, "Num: %20s, %8s, event times\n", "INT Name", "Status");
 	for (i = 0; i < INT_ENUM_MAX; i++) {
-		pmic_check_intNo(i, &spNo, &sp_conNo, &sp_irqNo);
+		if (pmic_check_intNo(i, &spNo, &sp_conNo, &sp_irqNo))
+			continue;
 		en = upmu_get_reg_value(sp_interrupts[spNo].enable +
 					0x6 * sp_conNo);
 		mask = upmu_get_reg_value(sp_interrupts[spNo].mask +

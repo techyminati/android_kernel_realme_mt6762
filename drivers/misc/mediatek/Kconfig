@@ -245,6 +245,15 @@ source "drivers/misc/mediatek/sync/Kconfig"
 source "drivers/misc/mediatek/video/Kconfig"
 source "drivers/misc/mediatek/dfrc/Kconfig"
 
+config MTK_CAM_SECURITY_SUPPORT
+	bool "Secure Camera Infrastructure Support"
+	default n
+	help
+	  This is an option for MTK secure camera infrastructure.
+	  It provides hardware-based security that guarantees the data integrity
+	  form image sensor, ISP DMA port access to secure memory.
+	  If you are not sure about this, do not set it to y.
+
 endmenu  # MM
 
 menu "Sensors"
@@ -273,11 +282,13 @@ endmenu  # Sensors
 menu "Modem & Connectivity related configs"
 
 source "drivers/misc/mediatek/ccci_util/Kconfig"
+source "drivers/misc/mediatek/mixdev/Kconfig"
 source "drivers/misc/mediatek/ccmni/Kconfig"
 source "drivers/misc/mediatek/connectivity/Kconfig"
 source "drivers/misc/mediatek/eccci/Kconfig"
 source "drivers/misc/mediatek/conn_md/Kconfig"
 source "drivers/misc/mediatek/btif/Kconfig"
+source "drivers/misc/mediatek/mddp/Kconfig"
 
 endmenu  # CONN
 
@@ -387,6 +398,17 @@ config MTK_FPSGO
 	  endurance and gaming experience.
 	  If you are not sure about this, set n.
 
+config MTK_FPSGO_V3
+	bool "Support FPSGO_V3 framework"
+	default n
+	help
+	  Support FPSGO_V3 framework for most FPS performance and
+	  low power balance. As a perquisite to ensure FPS performance,
+	  FPSGO_V3 persuades lowest power consumption for better DoU
+	  endurance and gaming experience.
+	  FPSGO_V3 include AI performance and low power.
+	  If you are not sure about this, set n.
+
 config MTK_PERF_TRACKER
 	bool "MTK system performance index support"
 	help
@@ -432,6 +454,7 @@ config MTK_GMO_RAM_OPTIMIZE
 	default n
 	select MTK_ENABLE_GMO
 	select MTK_ENABLE_AGO
+	select DM_ANDROID_VERITY_AT_MOST_ONCE_DEFAULT_ENABLED
 	help
 	  Provide centeral config to use memory efficiently.
 	  GMO must set both in kernel & project config to prevent
@@ -482,14 +505,12 @@ config MTK_ENABLE_AGO
 	select HZ_300
 	select UID_CPUTIME
 	select SDCARD_FS
-	select F2FS_FS
-	select F2FS_FS_SECURITY
-	select F2FS_FS_ENCRYPTION
-	select DM_ANDROID_VERITY_AT_MOST_ONCE_DEFAULT_ENABLE
 	help
 	  Enable/Disable GMO related feautre
 	  Do not use this options in Kernel directly
 	  this is a group kernel setting of AGO
+
+source "drivers/misc/mediatek/edmc/Kconfig"
 
 endmenu  # Memory
 
@@ -500,11 +521,13 @@ source "drivers/misc/mediatek/mtprof/Kconfig"
 source "drivers/misc/mediatek/vow/Kconfig"
 source "drivers/misc/mediatek/timer/Kconfig"
 source "drivers/misc/mediatek/mlog/Kconfig"
+source "drivers/misc/mediatek/cache-auditor/Kconfig"
 source "drivers/misc/mediatek/fiq_cache/Kconfig"
 source "drivers/misc/mediatek/debug_latch/Kconfig"
 source "drivers/misc/mediatek/watchpoint/Kconfig"
 source "drivers/misc/mediatek/Kconfig.default"
 source "drivers/misc/mediatek/tkcore/Kconfig"
+source "drivers/misc/mediatek/cmo/Kconfig"
 
 config MTK_FD_LEAK_DETECT
 	bool "Enable MTK fd leak detection"
@@ -517,6 +540,7 @@ config MTK_FD_LEAK_DETECT
 config MTK_FD_LEAK_SPECIFIC_DEBUG
 	bool "Specific demand in fd leak debug"
 	default n
+	depends on MTK_FD_LEAK_DETECT
 	help
 	  Specific demand in fd leak debug.
 	  Eg,

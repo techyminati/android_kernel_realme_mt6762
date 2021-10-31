@@ -34,6 +34,8 @@
 #include <linux/ioport.h>
 #include <linux/io.h>
 
+#include <audio_ipi_queue.h>
+
 #ifdef CONFIG_MTK_TINYSYS_SCP_SUPPORT
 #include <scp_helper.h>
 #include <scp_ipi.h>
@@ -42,13 +44,17 @@
 #ifdef CONFIG_MTK_AUDIODSP_SUPPORT
 #include <adsp_helper.h>
 #include <adsp_ipi.h>
+#include <adsp_service.h>
 #endif
 
 
 #include "audio_log.h"
 #include "audio_assert.h"
 
-#include "audio_task_manager.h"
+#include <audio_controller_msg_id.h>
+#include <audio_messenger_ipi.h>
+
+#include <audio_task_manager.h>
 
 #include <audio_ipi_dma.h>
 #include <audio_ipi_platform.h>
@@ -64,6 +70,20 @@
 #ifdef CONFIG_MTK_AUDIO_TUNNELING_SUPPORT
 #include "audio_ipi_client_playback.h"
 #endif
+
+
+
+/*
+ * =============================================================================
+ *                     log
+ * =============================================================================
+ */
+
+#ifdef pr_fmt
+#undef pr_fmt
+#endif
+#define pr_fmt(fmt) "[IPI][DRV] %s(), " fmt "\n", __func__
+
 
 
 /*
@@ -83,7 +103,6 @@
 
 #define AUDIO_IPI_IOCTL_INIT_DSP     _IOW(AUDIO_IPI_IOC_MAGIC, 20, unsigned int)
 #define AUDIO_IPI_IOCTL_REG_DMA      _IOW(AUDIO_IPI_IOC_MAGIC, 21, unsigned int)
-#define AUDIO_IPI_IOCTL_ADSP_REG_FEA _IOW(AUDIO_IPI_IOC_MAGIC, 22, unsigned int)
 
 
 
@@ -131,7 +150,7 @@ inline uint32_t msg_len_of_type(const uint8_t data_type)
 		msg_len = IPI_MSG_HEADER_SIZE + IPI_MSG_DMA_INFO_SIZE;
 		break;
 	default:
-		pr_info("%s(), %d not support!!", __func__, data_type);
+		pr_info("%d not support!!", data_type);
 		msg_len = IPI_MSG_HEADER_SIZE;
 	}
 
@@ -168,8 +187,8 @@ static int parsing_ipi_msg_from_user_space(
 	/* get message size to read */
 	msg_len = msg_len_of_type(data_type);
 	if (msg_len > sizeof(struct ipi_msg_t))  {
-		pr_notice("%s(), msg_len %u > %zu!!\n",
-			  __func__, msg_len, sizeof(struct ipi_msg_t));
+		pr_notice("msg_len %u > %zu!!",
+			  msg_len, sizeof(struct ipi_msg_t));
 		retval = -1;
 		goto parsing_exit;
 	}
@@ -177,13 +196,11 @@ static int parsing_ipi_msg_from_user_space(
 	memset(&ipi_msg, 0, sizeof(struct ipi_msg_t));
 	retval = copy_from_user(&ipi_msg, user_data_ptr, msg_len);
 	if (retval != 0) {
-		pr_notice("%s(), msg copy_from_user retval %d\n",
-			  __func__, retval);
+		pr_notice("msg copy_from_user retval %d", retval);
 		goto parsing_exit;
 	}
 	if (ipi_msg.data_type != data_type) { /* double check */
-		pr_notice("%s(), data_type %d != %d\n",
-			  __func__, ipi_msg.data_type, data_type);
+		pr_notice("data_type %d != %d", ipi_msg.data_type, data_type);
 		retval = -1;
 		goto parsing_exit;
 	}
@@ -210,8 +227,7 @@ static int parsing_ipi_msg_from_user_space(
 				 (void __user *)dma_info->hal_buf.addr,
 				 hal_data_size);
 		if (retval != 0) {
-			pr_notice("%s(), dma copy_from_user retval %d\n",
-				  __func__, retval);
+			pr_notice("dma copy_from_user retval %d", retval);
 			goto parsing_exit;
 		}
 
@@ -222,7 +238,7 @@ static int parsing_ipi_msg_from_user_space(
 				 hal_data_size,
 				 &dma_info->rw_idx);
 		if (retval != 0) {
-			pr_notice("%s(), dma write region error!!\n", __func__);
+			pr_notice("dma write region error!!");
 			goto parsing_exit;
 		}
 
@@ -240,22 +256,20 @@ static int parsing_ipi_msg_from_user_space(
 
 			/* force need ack to get scp info */
 			if (ipi_msg.ack_type != AUDIO_IPI_MSG_NEED_ACK) {
-				pr_notice("%s(), task %d msg 0x%x need ack!!\n",
-					  __func__,
+				pr_notice("task %d msg 0x%x need ack!!",
 					  ipi_msg.task_scene, ipi_msg.msg_id);
 				ipi_msg.ack_type = AUDIO_IPI_MSG_NEED_ACK;
 			}
 		}
 #if 0 /* debug only */
-		print_msg_info(__func__, "dma", &ipi_msg);
+		DUMP_IPI_MSG("dma", &ipi_msg);
 #endif
 	}
 
 	/* sent message */
 	retval = audio_send_ipi_filled_msg(&ipi_msg);
 	if (retval != 0) {
-		pr_notice("%s(), audio_send_ipi_filled_msg error!!\n",
-			  __func__);
+		pr_notice("audio_send_ipi_filled_msg error!!");
 		goto parsing_exit;
 	}
 
@@ -268,12 +282,12 @@ static int parsing_ipi_msg_from_user_space(
 	    wb_dram->addr_val != 0 &&
 	    ipi_msg.scp_ret == 1) {
 		if (wb_dram->data_size > hal_wb_buf_size) {
-			pr_notice("wb_dram->data_size %u > hal_wb_buf_size %u!!\n",
+			pr_notice("wb_dram->data_size %u > hal_wb_buf_size %u!!",
 				  wb_dram->data_size,
 				  hal_wb_buf_size);
 			ipi_msg.scp_ret = 0;
 		} else if (wb_dram->data_size == 0) {
-			pr_notice("ipi wb data sz = 0!! check adsp write\n");
+			pr_notice("ipi wb data sz = 0!! check adsp write");
 			ipi_msg.scp_ret = 0;
 		} else {
 			retval = copy_to_user(
@@ -282,8 +296,8 @@ static int parsing_ipi_msg_from_user_space(
 						 wb_dram->addr_val),
 					 wb_dram->data_size);
 			if (retval) {
-				pr_info("%s(), copy_to_user dma err, id = 0x%x\n",
-					__func__, ipi_msg.msg_id);
+				pr_info("copy_to_user dma err, id = 0x%x",
+					ipi_msg.msg_id);
 				ipi_msg.scp_ret = 0;
 			}
 		}
@@ -298,8 +312,7 @@ static int parsing_ipi_msg_from_user_space(
 			      &ipi_msg,
 			      sizeof(struct ipi_msg_t));
 	if (retval) {
-		pr_info("%s(), copy_to_user err, id = 0x%x\n",
-			__func__, ipi_msg.msg_id);
+		pr_info("copy_to_user err, id = 0x%x", ipi_msg.msg_id);
 		retval = -EFAULT;
 	}
 
@@ -317,8 +330,98 @@ parsing_exit:
 }
 
 
-/* trigger scp driver to dump scp_log to sdcard */
-/*extern void scp_get_log(int save);*/ /* TODO: ask scp driver to add in .h */
+#if defined(CONFIG_MTK_AUDIODSP_SUPPORT)
+/* ADSP reboot */
+#ifdef CFG_RECOVERY_SUPPORT
+static int audio_ctrl_event_receive(
+	struct notifier_block *this,
+	unsigned long event,
+	void *ptr)
+{
+	struct ipi_queue_handler_t *handler = NULL;
+	uint8_t scene = 0;
+
+	switch (event) {
+	case ADSP_EVENT_STOP:
+		for (scene = 0; scene < TASK_SCENE_SIZE; scene++) {
+			handler = get_ipi_queue_handler(scene);
+			if (handler != NULL)
+				flush_ipi_queue_handler(handler);
+		}
+		break;
+	case ADSP_EVENT_READY:
+		audio_ipi_dma_init_dsp();
+		break;
+	default:
+		pr_info("event %lu err", event);
+	}
+	return 0;
+}
+
+
+static struct notifier_block audio_ctrl_notifier = {
+	.notifier_call = audio_ctrl_event_receive,
+	.priority = AUDIO_CONTROLLER_FEATURE_PRI,
+};
+#endif /* end of CFG_RECOVERY_SUPPORT */
+
+/* HAL reboot */
+static int audio_ipi_init_dsp(void)
+{
+	static bool init_flag;
+
+	struct ipi_msg_t ipi_msg;
+	int ret = 0;
+
+	/* check phone boot */
+	if (init_flag == false) {
+		init_flag = true;
+		pr_info("phone init");
+		audio_ipi_dma_init_dsp();
+		return 0;
+	}
+
+	/* wake up adsp */
+	adsp_register_feature(AUDIO_CONTROLLER_FEATURE_ID);
+
+	/* not first init => HAL reboot */
+	pr_info("audio hal reinit");
+
+
+	/* TODO: do something before ADSP process hal reboot here */
+
+
+
+
+
+	/* ADSP process hal reboot here */
+	ret = audio_send_ipi_msg(
+		      &ipi_msg,
+		      TASK_SCENE_AUDIO_CONTROLLER,
+		      AUDIO_IPI_LAYER_TO_DSP,
+		      AUDIO_IPI_MSG_ONLY,
+		      AUDIO_IPI_MSG_NEED_ACK,
+		      AUD_CTL_MSG_A2D_HAL_REBOOT,
+		      0, /* 0: audio HAL */
+		      0,
+		      NULL);
+
+	/* release DMA */
+	audio_ipi_dma_free_region_all_task();
+
+
+	/* allow adsp to sleep */
+	adsp_deregister_feature(AUDIO_CONTROLLER_FEATURE_ID);
+
+
+	/* TODO: clear feature register count here? */
+#ifdef CONFIG_MTK_AUDIODSP_SUPPORT
+	reset_hal_feature_table();
+#endif
+
+	return ret;
+}
+#endif
 
 
 static long audio_ipi_driver_ioctl(
@@ -326,11 +429,10 @@ static long audio_ipi_driver_ioctl(
 {
 #if defined(CONFIG_MTK_AUDIODSP_SUPPORT)
 	struct audio_ipi_reg_dma_t dma_reg;
-	struct audio_ipi_reg_feature_t feat_reg;
 #endif
 	int retval = 0;
 
-	AUD_LOG_V("%s(), cmd = %u, arg = %lu\n", __func__, cmd, arg);
+	AUD_LOG_V("cmd = %u, arg = %lu", cmd, arg);
 
 	switch (cmd) {
 	case AUDIO_IPI_IOCTL_SEND_MSG_ONLY: {
@@ -349,16 +451,14 @@ static long audio_ipi_driver_ioctl(
 		break;
 	}
 	case AUDIO_IPI_IOCTL_LOAD_SCENE: {
-		pr_debug("%s(), AUDIO_IPI_IOCTL_LOAD_SCENE(%d)\n",
-			 __func__, (uint8_t)arg);
+		pr_debug("AUDIO_IPI_IOCTL_LOAD_SCENE(%d)", (uint8_t)arg);
 		audio_load_task((uint8_t)arg);
 		break;
 	}
 #if defined(CONFIG_MTK_AUDIODSP_SUPPORT)
 	case AUDIO_IPI_IOCTL_INIT_DSP: {
-		pr_debug("%s(), AUDIO_IPI_IOCTL_INIT_DSP(%d)\n",
-			 __func__, (uint8_t)arg);
-		audio_ipi_dma_init_dsp();
+		pr_debug("AUDIO_IPI_IOCTL_INIT_DSP(%d)", (uint8_t)arg);
+		audio_ipi_init_dsp();
 		break;
 	}
 	case AUDIO_IPI_IOCTL_REG_DMA: {
@@ -371,49 +471,16 @@ static long audio_ipi_driver_ioctl(
 				 (void __user *)arg,
 				 sizeof(struct audio_ipi_reg_dma_t));
 		if (retval != 0) {
-			pr_notice("%s(), dma reg copy_from_user retval %d\n",
-				  __func__, retval);
+			pr_notice("dma reg copy_from_user retval %d", retval);
 			break;
 		}
 
-		pr_debug("%s(), AUDIO_IPI_IOCTL_REG_DMA(%d,%d,0x%x,0x%x)\n",
-			 __func__,
-			 dma_reg.task,
-			 dma_reg.reg_flag,
-			 dma_reg.a2d_size,
-			 dma_reg.d2a_size);
 		if (dma_reg.reg_flag)
 			retval = audio_ipi_dma_alloc_region(dma_reg.task,
 							    dma_reg.a2d_size,
 							    dma_reg.d2a_size);
 		else
 			retval = audio_ipi_dma_free_region(dma_reg.task);
-
-		break;
-	}
-	case AUDIO_IPI_IOCTL_ADSP_REG_FEA: {
-		if (((void __user *)arg) == NULL) {
-			retval = -1;
-			break;
-		}
-		retval = copy_from_user(
-				 &feat_reg,
-				 (void __user *)arg,
-				 sizeof(struct audio_ipi_reg_feature_t));
-		if (retval != 0) {
-			pr_notice("%s(), feature reg copy_from_user retval %d\n",
-				  __func__, retval);
-			break;
-		}
-		pr_debug("%s(), AUDIO_IPI_IOCTL_ADSP_REG_FEA(%s,%d)\n",
-			 __func__,
-			 feat_reg.reg_flag ? "enable" : "disable",
-			 feat_reg.feature_id);
-
-		if (feat_reg.reg_flag)
-			retval = adsp_register_feature(feat_reg.feature_id);
-		else
-			retval = adsp_deregister_feature(feat_reg.feature_id);
 
 		break;
 	}
@@ -430,7 +497,7 @@ static long audio_ipi_driver_compat_ioctl(
 	struct file *file, unsigned int cmd, unsigned long arg)
 {
 	if (!file->f_op || !file->f_op->unlocked_ioctl) {
-		pr_notice("op null\n");
+		pr_notice("op null");
 		return -ENOTTY;
 	}
 	return file->f_op->unlocked_ioctl(file, cmd, arg);
@@ -487,6 +554,9 @@ static int __init audio_ipi_driver_init(void)
 
 #ifdef CONFIG_MTK_AUDIODSP_SUPPORT
 	init_audio_ipi_dma();
+#ifdef CFG_RECOVERY_SUPPORT
+	adsp_A_register_notify(&audio_ctrl_notifier);
+#endif
 #endif
 
 #ifdef CONFIG_MTK_AURISYS_PHONE_CALL_SUPPORT
@@ -495,7 +565,7 @@ static int __init audio_ipi_driver_init(void)
 
 	ret = misc_register(&audio_ipi_device);
 	if (unlikely(ret != 0)) {
-		pr_notice("[SCP] misc register failed\n");
+		pr_notice("misc register failed");
 		return ret;
 	}
 

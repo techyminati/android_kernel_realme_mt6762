@@ -60,6 +60,8 @@ enum MDLA_PMU_MODE {
 	MDLA_PMU_INTERVAL_MODE = 0x1,
 };
 
+#define MDLA_IOC_MAGIC (0x3d1a632fULL)
+
 struct ioctl_malloc {
 	__u32 size;  /* [in] allocate size */
 	__u32 mva;   /* [out] modified virtual address */
@@ -96,6 +98,17 @@ enum MDLA_CMD_RESULT {
 	MDLA_CMD_TIMEOUT = 1,
 };
 
+#define MDLA_IOC_SET_ARRAY_CNT(n) \
+	((MDLA_IOC_MAGIC << 32) | ((n) & 0xFFFFFFFF))
+#define MDLA_IOC_GET_ARRAY_CNT(n) \
+	(((n >> 32) == MDLA_IOC_MAGIC) ? ((n) & 0xFFFFFFFF) : 0)
+#define MDLA_IOC_SET_ARRAY_PTR(a) \
+	((unsigned long)(a))
+#define MDLA_IOC_GET_ARRAY_PTR(a) \
+	((void *)((unsigned long)(a)))
+
+#define MDLA_WAIT_CMD_ARRAY_SIZE 6
+
 struct ioctl_wait_cmd {
 	__u32 id;              /* [in] command id */
 	int  result;           /* [out] success(0), timeout(1) */
@@ -126,11 +139,28 @@ struct ioctl_ion {
 	__u64 khandle;  /* [in(unmap)/out(map)] kernel handle */
 	size_t len;     /* [in] memory size */
 };
+
+enum MDLA_CONFIG {
+	MDLA_CFG_NONE = 0,
+	MDLA_CFG_TIMEOUT_GET = 1,
+	MDLA_CFG_TIMEOUT_SET = 2,
+	MDLA_CFG_FIFO_SZ_GET = 3,
+	MDLA_CFG_FIFO_SZ_SET = 4,
+	MDLA_CFG_GSM_INFO = 5,
+};
+
+struct ioctl_config {
+	__u32 op;
+	__u32 arg_count;
+	__u64 arg[8];
+};
+
 struct mdla_power {
 	uint8_t boost_value;
 	/* align with core index defined in user space header file */
 	unsigned int core;
 };
+
 enum MDLA_OPP_PRIORIYY {
 	MDLA_OPP_DEBUG = 0,
 	MDLA_OPP_THERMAL = 1,
@@ -167,9 +197,19 @@ struct mdla_lock_power {
 #define IOCTL_PERF_SET_MODE       _IOWR(IOC_MDLA, 14, struct ioctl_perf)
 #define IOCTL_ION_KMAP            _IOWR(IOC_MDLA, 15, struct ioctl_ion)
 #define IOCTL_ION_KUNMAP          _IOWR(IOC_MDLA, 16, struct ioctl_ion)
+
+/* 17 ~ 63: reserved for DVFS */
 #define IOCTL_SET_POWER         _IOW(IOC_MDLA, 17, struct mdla_power)
 #define IOCTL_EARA_LOCK_POWER    _IOW(IOC_MDLA, 18, struct mdla_lock_power)
 #define IOCTL_POWER_HAL_LOCK_POWER _IOW(IOC_MDLA, 19, struct mdla_lock_power)
 #define IOCTL_EARA_UNLOCK_POWER   _IOW(IOC_MDLA, 20, struct mdla_lock_power)
 #define IOCTL_POWER_HAL_UNLOCK_POWER _IOW(IOC_MDLA, 21, struct mdla_lock_power)
+
+#define MDLA_DVFS_IOCTL_START IOCTL_SET_POWER
+#define MDLA_DVFS_IOCTL_END   IOCTL_POWER_HAL_UNLOCK_POWER
+
+#define IOCTL_CONFIG              _IOWR(IOC_MDLA, 64, struct ioctl_config)
+
+
 #endif
+

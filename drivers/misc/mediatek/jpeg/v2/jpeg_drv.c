@@ -189,6 +189,11 @@ static spinlock_t jpeg_enc_lock;
 static int enc_status;
 static int enc_ready;
 static DEFINE_MUTEX(jpeg_enc_power_lock);
+#ifdef ODM_HQ_EDIT
+/*Zhongqiu.Yu@ODM.HQ.MM.Codec.Jpeg 2019.04.09 add error handle when release*/
+static DEFINE_MUTEX(DriverOpenCountLock);
+static int Driver_Open_Count;
+#endif /*ODM_HQ_EDIT*/
 
 /* Support QoS */
 struct pm_qos_request jpgenc_qos_request;
@@ -340,8 +345,13 @@ void jpeg_drv_enc_power_on(void)
 			JPEG_ERR("enable clk_venc_jpgEnc fail!");
 	#else
 		#ifdef CONFIG_MTK_SMI_EXT
+			#ifdef PLATFORM_MT6779
+			smi_bus_prepare_enable(SMI_LARB3_REG_INDX,
+				"JPEG", true);
+			#else
 			smi_bus_prepare_enable(SMI_LARB1_REG_INDX,
 				"JPEG", true);
+			#endif
 			if (clk_prepare_enable(gJpegClk.clk_venc_jpgEnc))
 				JPEG_ERR("enable clk_venc_jpgDec fail!");
 		#else
@@ -383,8 +393,13 @@ void jpeg_drv_enc_power_off(void)
 	#else
 		#ifdef CONFIG_MTK_SMI_EXT
 			clk_disable_unprepare(gJpegClk.clk_venc_jpgEnc);
+			#ifdef PLATFORM_MT6779
+			smi_bus_disable_unprepare(SMI_LARB3_REG_INDX,
+				"JPEG", true);
+			#else
 			smi_bus_disable_unprepare(SMI_LARB1_REG_INDX,
 				"JPEG", true);
+			#endif
 		#else
 			#ifndef CONFIG_ARCH_MT6735M
 				clk_disable_unprepare(gJpegClk.clk_venc_larb);
@@ -1317,6 +1332,13 @@ static long jpeg_unlocked_ioctl(struct file *file, unsigned int cmd, unsigned lo
 static int jpeg_open(struct inode *inode, struct file *file)
 {
 	unsigned int *pStatus;
+#ifdef ODM_HQ_EDIT
+/*Zhongqiu.Yu@ODM.HQ.MM.Codec.Jpeg 2019.04.09 add error handle when release*/
+	mutex_lock(&DriverOpenCountLock);
+	Driver_Open_Count++;
+	mutex_unlock(&DriverOpenCountLock);
+#endif /*ODM_HQ_EDIT*/
+
 	/* Allocate and initialize private data */
 	 file->private_data = kmalloc(sizeof(unsigned int), GFP_ATOMIC);
 
@@ -1339,6 +1361,25 @@ static ssize_t jpeg_read(struct file *file, char __user *data, size_t len, loff_
 
 static int jpeg_release(struct inode *inode, struct file *file)
 {
+#ifdef ODM_HQ_EDIT
+/*Zhongqiu.Yu@ODM.HQ.MM.Codec.Jpeg 2019.04.09 add error handle when release*/
+	mutex_lock(&DriverOpenCountLock);
+	Driver_Open_Count--;
+	if (Driver_Open_Count == 0) {
+		if (enc_status != 0) {
+			JPEG_WRN("Error! Enable error handling for jpeg encoder");
+			jpeg_drv_enc_deinit();
+		}
+
+#ifdef JPEG_DEC_DRIVER
+		if (dec_status != 0) {
+			JPEG_WRN("Error! Enable error handling for jpeg decoder");
+			jpeg_drv_dec_deinit();
+		}
+#endif
+	}
+	mutex_unlock(&DriverOpenCountLock);
+#else /*ODM_HQ_EDIT*/
 /*
 	if (enc_status != 0) {
 		JPEG_WRN("Error! Enable error handling for jpeg encoder");
@@ -1352,6 +1393,7 @@ static int jpeg_release(struct inode *inode, struct file *file)
 	}
 #endif
 */
+#endif /*ODM_HQ_EDIT*/
 
 	if (file->private_data != NULL) {
 		kfree(file->private_data);
@@ -1764,6 +1806,10 @@ static int __init jpeg_init(void)
 	cmdqCoreRegisterCB(CMDQ_GROUP_JPEG,
 			   cmdqJpegClockOn, cmdqJpegDumpInfo, cmdqJpegResetEng, cmdqJpegClockOff);
 #endif
+#ifdef ODM_HQ_EDIT
+/*Zhongqiu.Yu@ODM.HQ.MM.Codec.Jpeg 2019.04.09 add error handle when release*/
+	Driver_Open_Count = 0;
+#endif /*ODM_HQ_EDIT*/
 	return 0;
 }
 

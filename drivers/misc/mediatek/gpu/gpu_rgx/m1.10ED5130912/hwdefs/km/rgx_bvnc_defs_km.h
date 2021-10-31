@@ -300,6 +300,12 @@ typedef enum _RGX_FEATURE_WITH_VALUE_INDEX_ {
 #define	FIX_HW_BRN_64839_POS                                        	(28U)
 #define	FIX_HW_BRN_64839_BIT_MASK                                   	(IMG_UINT64_C(0x0000000010000000))
 
+//#ifdef ODM_HQ_EDIT
+/*Zhongqiu.Yu@ODM.HQ.MM.DISPLAY.GPU 2019.04.10 fix fence timeout*/
+#define	FIX_HW_BRN_67349_POS                                        	(29U)
+#define	FIX_HW_BRN_67349_BIT_MASK                                   	(IMG_UINT64_C(0x0000000020000000))
+//#endif /*ODM_HQ_EDIT*/
+
 /* Macro used for padding the unavailable values for features with values */
 #define RGX_FEATURE_VALUE_INVALID	(0xFFFFFFFE)
 

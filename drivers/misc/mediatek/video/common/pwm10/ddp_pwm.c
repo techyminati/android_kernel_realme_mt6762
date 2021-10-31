@@ -84,8 +84,15 @@ static atomic_t g_pwm_backlight[PWM_TOTAL_MODULE_NUM] = {
 	ATOMIC_INIT(-1), ATOMIC_INIT(-1) };
 static atomic_t g_pwm_en[PWM_TOTAL_MODULE_NUM] = {
 	ATOMIC_INIT(-1), ATOMIC_INIT(-1) };
+#ifdef ODM_HQ_EDIT
+/* wangxianfei@ODM.HQ.Multimedia.LCM 2018/12/6 modified for 2048 steps backlight */
+static atomic_t g_pwm_max_backlight[PWM_TOTAL_MODULE_NUM] = {
+	ATOMIC_INIT(2047), ATOMIC_INIT(2047) };
+#else
 static atomic_t g_pwm_max_backlight[PWM_TOTAL_MODULE_NUM] = {
 	ATOMIC_INIT(1023), ATOMIC_INIT(1023) };
+#endif /* ODM_HQ_EDIT */
+
 static atomic_t g_pwm_is_power_on[PWM_TOTAL_MODULE_NUM] = {
 	ATOMIC_INIT(0), ATOMIC_INIT(0) };
 static atomic_t g_pwm_value_before_power_off[PWM_TOTAL_MODULE_NUM] = {
@@ -103,8 +110,15 @@ static atomic_t g_pwm_is_change_state[PWM_TOTAL_MODULE_NUM] = {
 #ifndef CONFIG_FPGA_EARLY_PORTING
 static atomic_t g_pwm_backlight[PWM_TOTAL_MODULE_NUM] = { ATOMIC_INIT(-1) };
 static atomic_t g_pwm_en[PWM_TOTAL_MODULE_NUM] = { ATOMIC_INIT(-1) };
+
+#ifndef VENDOR_EDIT
+/*Ling.Guo@PSW.MultiMedia.Display.LCD.Machine, 2018/11/09,modify for multibits backlight.*/
 static atomic_t g_pwm_max_backlight[PWM_TOTAL_MODULE_NUM] = {
 	ATOMIC_INIT(1023) };
+#else
+static atomic_t g_pwm_max_backlight[PWM_TOTAL_MODULE_NUM] = { ATOMIC_INIT(2047) };
+#endif
+
 static atomic_t g_pwm_is_power_on[PWM_TOTAL_MODULE_NUM] = { ATOMIC_INIT(0) };
 static atomic_t g_pwm_value_before_power_off[PWM_TOTAL_MODULE_NUM] = {
 	ATOMIC_INIT(0) };
@@ -314,7 +328,12 @@ static int disp_pwm_config_init(enum DISP_MODULE_ENUM module,
 	(0x3ff << 16));
 
 	/* 1024 levels */
-	DISP_REG_MASK(cmdq, reg_base + DISP_PWM_CON_1_OFF, 1023, 0x3ff);
+	#ifdef ODM_HQ_EDIT
+	/* wangxianfei@ODM.HQ.Multimedia.LCM 2018/12/6 modified for 2048 steps backlight */
+	DISP_REG_MASK(cmdq, reg_base + DISP_PWM_CON_1_OFF, 2047, 0x7ff);	/* 1024 levels */
+	#else
+	DISP_REG_MASK(cmdq, reg_base + DISP_PWM_CON_1_OFF, 1023, 0x3ff);        /* 1024 levels */
+	#endif /* ODM_HQ_EDIT */
 	/* We don't init the backlight here until AAL/Android give */
 #endif
 	return 0;
@@ -604,14 +623,25 @@ int disp_pwm_set_backlight_cmdq(enum disp_pwm_id_t id,
 		reg_base = pwm_get_reg_base(id);
 
 		if (level_1024 > 0) {
+                        #ifdef ODM_HQ_EDIT
+                        /* wangxianfei@ODM.HQ.Multimedia.LCM 2018/12/6 modified for 2048 steps backlight */
 			DISP_REG_MASK(cmdq, reg_base + DISP_PWM_CON_1_OFF,
-				level_1024 << 16, 0x1fff << 16);
+				level_1024 << 16, 0x3fff << 16);
+                        #else
+                        DISP_REG_MASK(cmdq, reg_base + DISP_PWM_CON_1_OFF, level_1024 << 16, 0x1fff << 16);
+                        #endif /* ODM_HQ_EDIT */
 
 			disp_pwm_set_enabled(cmdq, id, 1);
 		} else {
 			/* Avoid to set 0 */
+                        #ifdef ODM_HQ_EDIT
+                        /* wangxianfei@ODM.HQ.Multimedia.LCM 2018/12/6 modified for 2048 steps backlight */
 			DISP_REG_MASK(cmdq, reg_base + DISP_PWM_CON_1_OFF,
-				1 << 16, 0x1fff << 16);
+				1 << 16, 0x3fff << 16);
+                        #else
+                        DISP_REG_MASK(cmdq, reg_base + DISP_PWM_CON_1_OFF, 1 << 16, 0x1fff << 16);
+                        #endif /* ODM_HQ_EDIT */
+
 			/* To save power */
 			disp_pwm_set_enabled(cmdq, id, 0);
 		}

@@ -131,11 +131,13 @@ static unsigned long pseudo_larbbase[SMI_LARB_NR];
 static const char *const pseudo_larbname[] = {
 	"mediatek,smi_larb0", "mediatek,smi_larb1", "mediatek,smi_larb2",
 	"mediatek,smi_larb3", "mediatek,smi_larb4", "mediatek,smi_larb5",
-	"mediatek,smi_larb6", "mediatek,smi_larb7"
+	"mediatek,smi_larb6", "mediatek,smi_larb7", "mediatek,smi_larb8",
+	"mediatek,smi_larb9", "mediatek,smi_larb10"
 };
 char *pseudo_larb_clk_name[] = {
 	"m4u_smi_larb0", "m4u_smi_larb1", "m4u_smi_larb2", "m4u_smi_larb3",
-	"m4u_smi_larb5", "m4u_smi_larb6", "m4u_smi_larb7", "m4u_smi_larb8"
+	"m4u_smi_larb5", "m4u_smi_larb6", "m4u_smi_larb7", "m4u_smi_larb8",
+	"m4u_smi_larb9", "m4u_smi_larb10"
 };
 
 struct m4u_device *pseudo_mmu_dev;
@@ -176,11 +178,6 @@ static inline unsigned int pseudo_get_reg_by_mask(
 						   unsigned int mask)
 {
 	return pseudo_readreg32(Base, reg) & mask;
-}
-
-static inline int m4u_user2kernel_port(int userport)
-{
-	return userport;
 }
 
 static inline int m4u_kernel2user_port(int kernelport)
@@ -234,6 +231,8 @@ static char *m4u_get_module_name(int portID)
 }
 
 static struct pseudo_device larbdev[MTK_IOMMU_LARB_NR];
+static struct pseudo_device vpu_larbdev;
+#define VPU_LARBID	13
 struct device *pseudo_get_larbdev(int portid)
 {
 	struct pseudo_device *pseudo;
@@ -242,6 +241,8 @@ struct device *pseudo_get_larbdev(int portid)
 
 	if (pseudo && pseudo->dev) {
 		pseudo->larbid = m4u_get_larbid(portid);
+		if (pseudo->larbid == VPU_LARBID)
+			pseudo = &vpu_larbdev;
 		return pseudo->dev;
 	}
 
@@ -259,11 +260,13 @@ static int larb_clock_on(int larb, bool config_mtcmos)
 		ret = smi_bus_prepare_enable(larb,
 					     pseudo_larb_clk_name[larb],
 					     true);
-	if (ret != 0)
+	if (ret != 0) {
 		M4U_MSG("larb_clock_on error: larb %d\n", larb);
+		ret = -1;
+	}
 #endif
 
-	return 0;
+	return ret;
 }
 
 
@@ -276,11 +279,13 @@ static int larb_clock_off(int larb, bool config_mtcmos)
 		ret = smi_bus_disable_unprepare(larb,
 						pseudo_larb_clk_name[larb],
 						true);
-	if (ret != 0)
+	if (ret != 0) {
 		M4U_MSG("larb_clock_on error: larb %d\n", larb);
+		ret = -1;
+	}
 #endif
 
-	return 0;
+	return ret;
 }
 
 #ifdef M4U_TEE_SERVICE_ENABLE
@@ -486,11 +491,17 @@ static inline int pseudo_config_port(struct M4U_PORT_STRUCT *pM4uPort)
 	unsigned long larb_base;
 	unsigned int larb, larb_port;
 	int mmu_en = 0, mmu_old_en;
+	int ret = 0;
 
 	larb = m4u_get_larbid(pM4uPort->ePortID);
 	larb_port = m4u_port_2_larb_port(pM4uPort->ePortID);
 	larb_base = pseudo_larbbase[larb];
-	larb_clock_on(larb, 1);
+	ret = larb_clock_on(larb, 1);
+	if (ret < 0) {
+		M4U_MSG("enable larb%d fail\n", larb);
+		return ret;
+	}
+
 	mmu_old_en = pseudo_readreg32(larb_base,
 					  SMI_LARB_NON_SEC_CONx(larb_port));
 	pseudo_set_reg_by_mask(larb_base,
@@ -510,8 +521,10 @@ static inline int pseudo_config_port(struct M4U_PORT_STRUCT *pM4uPort)
 					     F_SMI_MMU_EN);
 	}
 
-	larb_clock_off(larb, 1);
-	return 0;
+	ret = larb_clock_off(larb, 1);
+	if (ret < 0)
+		M4U_MSG("disable larb%d fail\n", larb);
+	return ret;
 }
 
 /*
@@ -522,9 +535,9 @@ static inline int pseudo_config_port(struct M4U_PORT_STRUCT *pM4uPort)
  */
 static dma_addr_t pseudo_alloc_fixed_iova(int port,
 					  unsigned int fix_iova,
-					  unsigned int size)
+					  unsigned int size, struct device *dev)
 {
-	struct device *dev = pseudo_get_larbdev(0);
+	//struct device *dev = pseudo_get_larbdev(0);
 	struct iommu_domain *domain;
 	struct iova_domain *iovad;
 	struct iova *iova;
@@ -569,9 +582,9 @@ retry:
 	return dma_addr;
 }
 
-static void pseudo_free_iova(int port, dma_addr_t dma_addr)
+static void pseudo_free_iova(int port, dma_addr_t dma_addr, struct device *dev)
 {
-	struct device *dev = pseudo_get_larbdev(0);
+	//struct device *dev = pseudo_get_larbdev(0);
 	struct iommu_domain *domain;
 	struct iova_domain *iovad;
 	unsigned long shift;
@@ -1649,12 +1662,16 @@ static int __pseudo_alloc_mva(int port, unsigned long va, unsigned int size,
 {
 	struct mva_sglist *mva_sg;
 	struct sg_table *table = NULL;
-	int ret, kernelport = m4u_user2kernel_port(port);
-	struct device *dev = pseudo_get_larbdev(kernelport);
+	int ret;
+	struct device *dev = pseudo_get_larbdev(port);
 	dma_addr_t dma_addr = DMA_ERROR_CODE;
 #ifdef CONFIG_ARM64
 	struct iommu_domain *domain = NULL;
 	struct iova_domain *iovad;
+	dma_addr_t offset = 0;
+	unsigned int i;
+	struct scatterlist *s = sg_table->sgl;
+	dma_addr_t orig_addr = DMA_ERROR_CODE;
 #endif
 
 	if (va && sg_table) {
@@ -1682,7 +1699,7 @@ static int __pseudo_alloc_mva(int port, unsigned long va, unsigned int size,
 	/* this is for ion mm heap and ion fb heap usage. */
 	if (sg_table) {
 		if ((flags & M4U_FLAGS_SG_READY) == 0) {
-			struct scatterlist *s = sg_table->sgl, *ng;
+			struct scatterlist *ng;
 			phys_addr_t phys;
 			int i;
 
@@ -1703,6 +1720,7 @@ static int __pseudo_alloc_mva(int port, unsigned long va, unsigned int size,
 				phys = sg_phys(s);
 				size += s->length;
 				sg_set_page(ng, sg_page(s), s->length, 0);
+				sg_dma_address(ng) = phys;
 				sg_dma_len(ng) = s->length;
 				s = sg_next(s);
 				ng = sg_next(ng);
@@ -1721,8 +1739,12 @@ static int __pseudo_alloc_mva(int port, unsigned long va, unsigned int size,
 	}
 
 	if ((flags & (M4U_FLAGS_FIX_MVA | M4U_FLAGS_START_FROM)) != 0) {
-		dma_addr = pseudo_alloc_fixed_iova(port, *retmva, size);
+		dma_addr = pseudo_alloc_fixed_iova(port, *retmva, size, dev);
 #ifdef CONFIG_ARM64
+		if (!dma_addr) {
+			M4U_MSG("alloc fixed iova fail\n", *retmva);
+			goto ERR2_EXIT;
+		}
 		if (iommu_map_sg(domain, dma_addr, table->sgl, sg_table ?
 				 table->nents : table->orig_nents,
 				 IOMMU_READ | IOMMU_WRITE) < size) {
@@ -1753,7 +1775,13 @@ static int __pseudo_alloc_mva(int port, unsigned long va, unsigned int size,
 			flags, table->nents, table->orig_nents);
 		goto ERR1_EXIT;
 	}
-
+	orig_addr = sg_dma_address(sg_table->sgl);
+	if (orig_addr != dma_addr) {
+		for_each_sg(sg_table->sgl, s, sg_table->nents, i) {
+			sg_dma_address(s) = dma_addr + offset;
+			offset += s->length;
+		}
+	}
 	*retmva = dma_addr;
 
 	mva_sg = kzalloc(sizeof(*mva_sg), GFP_KERNEL);
@@ -1783,7 +1811,7 @@ ERR1_EXIT:
 
 	M4U_MSG("iommu_map_sg failed\n");
 	if (dma_addr != DMA_ERROR_CODE)
-		pseudo_free_iova(port, dma_addr);
+		pseudo_free_iova(port, dma_addr, dev);
 
 ERR2_EXIT:
 	if (table) {
@@ -1913,9 +1941,9 @@ int pseudo_alloc_mva_sg(struct port_mva_info_t *port_info,
 	}
 
 	if (port_info->flags & M4U_FLAGS_FIX_MVA) {
-		if (port_info->iova_end >
+		if (port_info->iova_end >=
 		    (port_info->iova_start + port_info->bufsize)) {
-			port_info->mva = (port_info->iova_end - size_align);
+			port_info->mva = port_info->iova_start;
 			flags = M4U_FLAGS_START_FROM;
 		} else
 			flags = M4U_FLAGS_FIX_MVA;
@@ -1935,16 +1963,16 @@ int pseudo_alloc_mva_sg(struct port_mva_info_t *port_info,
 	pbuf_info = pseudo_alloc_buf_info();
 
 	pbuf_info->va = port_info->va;
-	pbuf_info->port = port_info->eModuleID;
+	pbuf_info->port = port_info->module_id;
 	pbuf_info->size = port_info->bufsize;
 	pbuf_info->flags = flags;
 	pbuf_info->sg_table = sg_table;
 
-	ret = __pseudo_alloc_mva(port_info->eModuleID, va_align, size_align,
+	ret = __pseudo_alloc_mva(port_info->module_id, va_align, size_align,
 			      sg_table, flags, &mva_align);
 	if (ret) {
 		M4U_MSG("error alloc mva: port %d, 0x%x, 0x%lx, 0x%x, 0x%x\n",
-			port_info->eModuleID, flags, port_info->va,
+			port_info->module_id, flags, port_info->va,
 			mva, port_info->bufsize);
 		mva = 0;
 		goto err;
@@ -1957,8 +1985,8 @@ int pseudo_alloc_mva_sg(struct port_mva_info_t *port_info,
 	*pMva = mva;
 
 	pseudo_client_add_buf(ion_m4u_client, pbuf_info);
-	M4U_DBG("port 0x%x, flags 0x%x, va 0x%lx, mva = 0x%x, size 0x%x\n",
-		port_info->eModuleID, flags,
+	M4U_DBG("%s:port(%d), flags(%d), va(0x%lx), mva=0x%x, size 0x%x\n",
+		__func__, port_info->module_id, flags,
 		port_info->va, mva, port_info->bufsize);
 
 	return 0;
@@ -2020,8 +2048,7 @@ int __pseudo_dealloc_mva(int port,
 		      struct sg_table *sg_table)
 {
 	struct sg_table *table = NULL;
-	int kernelport = m4u_user2kernel_port(port);
-	struct device *dev = pseudo_get_larbdev(0);
+	struct device *dev = pseudo_get_larbdev(port);
 #ifdef CONFIG_ARM64
 	struct iommu_domain *domain;
 #else
@@ -2068,7 +2095,7 @@ int __pseudo_dealloc_mva(int port,
 			M4U_ERR("can't found the table from mva 0x%x-0x%lx\n",
 				MVA, addr_align);
 			M4U_ERR("%s, addr=0x%lx,size=0x%x,MVA=0x%x-0x%x\n",
-				m4u_get_module_name(kernelport),
+				m4u_get_module_name(port),
 				BufAddr, size, MVA, MVA + size - 1);
 			dump_stack();
 			return -EINVAL;
@@ -2767,6 +2794,7 @@ retry:
  */
 #ifdef CONFIG_ARM64
 static struct dma_iommu_mapping *dmapping;
+
 static int pseudo_reserve_dm(void)
 {
 	struct iommu_dm_region *entry;
@@ -2924,7 +2952,7 @@ static int pseudo_probe(struct platform_device *pdev)
 		return -EPROBE_DEFER;
 	}
 #endif
-	for (i = 0; i < 3; i++) {
+	for (i = 0; i < MTK_IOMMU_LARB_NR; i++) {
 		/* wait for larb probe done. */
 		/* if (mtk_smi_larb_ready(i) == 0) {
 		 *	M4U_MSG("pseudo_probe - smi not ready\n");
@@ -2933,7 +2961,7 @@ static int pseudo_probe(struct platform_device *pdev)
 		 */
 		/* wait for pseudo larb probe done. */
 		if (!larbdev[i].dev) {
-			M4U_MSG("pseudo_probe - dev not ready\n");
+			M4U_MSG("pseudo_probe - dev(%d) not ready\n", i);
 			return -EPROBE_DEFER;
 		}
 	}
@@ -2972,13 +3000,21 @@ static int pseudo_probe(struct platform_device *pdev)
 	pseudo_mmubase[0] = (unsigned long)of_iomap(node, 0);
 
 	for (i = 0; i < SMI_LARB_NR; i++) {
+		int ret = 0;
+
 		node = of_find_compatible_node(NULL, NULL, pseudo_larbname[i]);
-		if (node == NULL)
+		if (node == NULL) {
 			M4U_ERR("init larb %d error\n", i);
+			continue;
+		}
 
 		pseudo_larbbase[i] = (unsigned long)of_iomap(node, 0);
 		/* set mm engine domain to 0x4 (default value) */
-		larb_clock_on(i, 1);
+		ret = larb_clock_on(i, 1);
+		if (ret < 0) {
+			M4U_MSG("larb%d clock on fail\n", i);
+			continue;
+		}
 #ifndef CONFIG_FPGA_EARLY_PORTING
 		M4U_MSG("m4u write all port domain to 4\n");
 		for (j = 0; j < 32; j++)
@@ -2989,9 +3025,13 @@ static int pseudo_probe(struct platform_device *pdev)
 #else
 		j = 0;
 #endif
-		larb_clock_off(i, 1);
+		ret = larb_clock_off(i, 1);
+		if (ret < 0) {
+			M4U_MSG("larb%d clock off fail\n", i);
+			continue;
+		}
 
-		M4U_MSG("init larb %d, 0x%lx\n", i, pseudo_larbbase[i]);
+		M4U_MSG("init larb%d=0x%lx\n", i, pseudo_larbbase[i]);
 	}
 	M4U_MSG("pseudo_probe done\n");
 	return 0;
@@ -3037,15 +3077,20 @@ static int pseudo_port_probe(struct platform_device *pdev)
 	if (ret)
 		return ret;
 
-	larbdev[larbid].larbid = larbid;
-	larbdev[larbid].dev = &pdev->dev;
+	if (larbid == VPU_LARBID) {
+		vpu_larbdev.larbid = larbid;
+		vpu_larbdev.dev = &pdev->dev;
+		dev = vpu_larbdev.dev;
+	} else {
+		larbdev[larbid].larbid = larbid;
+		larbdev[larbid].dev = &pdev->dev;
+		if (larbdev[larbid].mmuen)
+			return 0;
 
-	if (larbdev[larbid].mmuen)
-		return 0;
+		dev = larbdev[larbid].dev;
+	}
 
-	dev = larbdev[larbid].dev;
-
-	M4U_MSG("pseudo_port_probe done\n");
+	M4U_MSG("pseudo_port_probe done(%d-%p)\n", larbid, dev);
 	return 0;
 }
 

@@ -1144,10 +1144,12 @@ int dlpt_notify_handler(void *unused)
 				power_off_cnt++;
 				pr_info("[DLPT_POWER_OFF_EN] notify SOC=0 to power off, power_off_cnt=%d\n"
 					, power_off_cnt);
-
+#ifndef ODM_HQ_EDIT
+/*Hanxing.Duan@ODM.HQ.BSP.CHG.Basic 2019.01.24 Delete dlpt shutdown*/
 				if (power_off_cnt >= 4)
 					kernel_restart(
 						"DLPT reboot system");
+#endif /*ODM_HQ_EDIT*/
 			} else
 				power_off_cnt = 0;
 		}
@@ -1807,9 +1809,16 @@ static void pmic_uvlo_init(void)
 		pr_notice("Invalid value(%d)\n", POWER_UVLO_VOLT_LEVEL);
 		break;
 	}
+#ifdef ODM_HQ_EDIT
+/*Hanxing.Duan@ODM.HQ.BSP.CHG.Basic 2019.03.01 modify UVLO to 2.75V*/
+	pr_err("POWER_UVLO_VOLT_LEVEL = %d, RG_UVLO_VTHL = 0x%x\n"
+		, POWER_UVLO_VOLT_LEVEL
+		, pmic_get_register_value(PMIC_RG_UVLO_VTHL));
+#else /*ODM_HQ_EDIT*/
 	pr_info("POWER_UVLO_VOLT_LEVEL = %d, RG_UVLO_VTHL = 0x%x\n"
 		, POWER_UVLO_VOLT_LEVEL
 		, pmic_get_register_value(PMIC_RG_UVLO_VTHL));
+#endif /*ODM_HQ_EDIT*/
 }
 
 int pmic_throttling_dlpt_init(void)

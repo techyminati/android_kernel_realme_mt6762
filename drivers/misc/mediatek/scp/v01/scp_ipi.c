@@ -94,7 +94,6 @@ void scp_A_ipi_handler(void)
  */
 void scp_A_ipi_init(void)
 {
-	int i = 0;
 #if SCP_IPI_STAMP_SUPPORT
 	int j = 0;
 #endif
@@ -102,27 +101,11 @@ void scp_A_ipi_init(void)
 	mutex_init(&scp_ipi_mutex[SCP_A_ID]);
 	scp_rcv_obj[SCP_A_ID] = SCP_A_SHARE_BUFFER;
 	scp_send_obj[SCP_A_ID] = scp_rcv_obj[SCP_A_ID] + 1;
-	pr_debug("scp_rcv_obj[SCP_A_ID] = 0x%p\n", scp_rcv_obj[SCP_A_ID]);
-	pr_debug("scp_send_obj[SCP_A_ID] = 0x%p\n", scp_send_obj[SCP_A_ID]);
+	pr_debug("[SCP] scp_rcv_obj[A] = 0x%p\n", scp_rcv_obj[SCP_A_ID]);
+	pr_debug("[SCP] scp_send_obj[A] = 0x%p\n", scp_send_obj[SCP_A_ID]);
 	memset_io(scp_send_obj[SCP_A_ID], 0, SHARE_BUF_SIZE);
 	scp_to_ap_ipi_count = 0;
 	ap_to_scp_ipi_count = 0;
-
-	for (i = 0; i < SCP_NR_IPI; i++) {
-		scp_ipi_desc[i].recv_count	 = 0;
-		scp_ipi_desc[i].success_count  = 0;
-		scp_ipi_desc[i].busy_count	 = 0;
-		scp_ipi_desc[i].error_count	= 0;
-#if SCP_IPI_STAMP_SUPPORT
-		for (j = 0; j < SCP_IPI_ID_STAMP_SIZE; j++) {
-			scp_ipi_desc[i].recv_timestamp[j] = 0;
-			scp_ipi_desc[i].send_timestamp[j] = 0;
-			scp_ipi_desc[i].recv_flag[j] = 0;
-			scp_ipi_desc[i].send_flag[j] = 0;
-			scp_ipi_desc[i].handler_timestamp[j] = 0;
-		}
-#endif
-	}
 }
 
 
@@ -215,6 +198,7 @@ enum scp_ipi_status scp_ipi_send(enum ipi_id id, void *buf,
 		/* pr_err("scp_ipi_send: %s not enabled, id=%d\n"
 		 *					, core_ids[scp_id], id);
 		 */
+		pr_notice("scp_ipi_send: %s not ready\n", core_ids[scp_id]);
 		scp_ipi_desc[id].error_count++;
 		return SCP_IPI_ERROR;
 	}
@@ -225,6 +209,7 @@ enum scp_ipi_status scp_ipi_send(enum ipi_id id, void *buf,
 	}
 #if SCP_RECOVERY_SUPPORT
 	if (atomic_read(&scp_reset_status) == RESET_STATUS_START) {
+		pr_notice("scp_ipi_send: %s reset start\n", core_ids[scp_id]);
 		scp_ipi_desc[id].error_count++;
 		return SCP_IPI_ERROR;
 	}
@@ -391,11 +376,12 @@ void mt_print_scp_ipi_id(void)
 {
 	enum ipi_id id = scp_rcv_obj[0]->id;
 	unsigned char *buf = scp_rcv_obj[0]->share_buf;
+	uint16_t *ipi_count = (uint16_t *)scp_rcv_obj[0]->reserve;
 
 	switch (id) {
 	case IPI_SENSOR:
-		pr_info("[SCP] ipi id/type/action/event/reserve = %d/%d/%d/%d/%d\n",
-				id, buf[0], buf[1], buf[2], buf[3]);
+		pr_info("[SCP] ipi(%d) id/type/action/event/reserve = %d/%d/%d/%d/%d\n",
+				*ipi_count, id, buf[0], buf[1], buf[2], buf[3]);
 		break;
 	default:
 		pr_info("[SCP] ipi id = %d\n", id);

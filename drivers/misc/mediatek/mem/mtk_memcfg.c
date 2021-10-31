@@ -87,7 +87,7 @@ static void mtk_memcfg_show_layout_region_kernel(struct seq_file *m,
 		size);
 }
 
-#define MAX_RESERVED_COUNT 30
+#define MAX_RESERVED_COUNT 64
 static int mtk_memcfg_memory_layout_show(struct seq_file *m, void *v)
 {
 	int i, ret = 0;
@@ -119,9 +119,8 @@ static int mtk_memcfg_memory_layout_show(struct seq_file *m, void *v)
 	}
 
 	count = memcfg_remove_free_mem(reserved_mem, count);
-	if (count <= 0 || count > MAX_RESERVED_REGIONS) {
-		seq_printf(m, "count(%d) over limit after parsing!\n",
-				count);
+	if (count <= 0 || count > MAX_RESERVED_COUNT) {
+		pr_info("count(%d) over limit after parsing!\n", count);
 		kfree(reserved_mem);
 		goto debug_info;
 	}

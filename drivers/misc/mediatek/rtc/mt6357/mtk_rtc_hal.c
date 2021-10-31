@@ -117,7 +117,30 @@ u16 rtc_spare_reg[RTC_SPAR_NUM][3] = {
 	,
 	{RTC_SPAR0, 0x1, 7}
 	,
+/*Duwenchao@ODM_HQ.BSP.Kernel.Driver 2018/12/15 add factory test for GPIO to GND*/
+	{RTC_AL_DOW, 0xff, 8}
+	,
 	{RTC_AL_HOU, 0xff, 8}
+	,
+#ifdef ODM_HQ_EDIT
+/*Duwenchao@ODM_HQ.BSP.Kernel.Driver 2018/12/15 add factory test for GPIO to GND*/
+	{RTC_SPAR0, 0x1, 8}
+	,
+	{RTC_SPAR0, 0x1, 9}
+	,
+	{RTC_SPAR0, 0x1, 10}
+	,
+	{RTC_SPAR0, 0x1, 11}
+	,
+	{RTC_SPAR0, 0x1, 12}
+	,
+	{RTC_SPAR0, 0x1, 13}
+	,
+	{RTC_SPAR0, 0x1, 14}
+	,
+	{RTC_SPAR0, 0x1, 15}
+	,
+#endif
 };
 
 static int rtc_eosc_cali_td = 8;

@@ -1,6 +1,11 @@
 config MTK_MMPROFILE_SUPPORT
 	bool "MMProfile function enable or disable"
-	default y
+	#ifndef VENDOR_EDIT
+	#GaoTing.Gan@PSW.MultiMedia.MediaServer, 2019/02/27, Modify for close MMPOFILE_SUPPORT to add memory
+	#default y
+	#else /* VENDOR_EDIT */
+	default n
+	#endif /* VENDOR_EDIT */
 	help
 	  Multimedia profiling mechanism function support.
 	  By enable this config, the actual implementation under mmp/src/

@@ -220,10 +220,13 @@ struct ppm_cluster_info {
 	unsigned int dvfs_opp_num;
 	unsigned int max_freq_except_userlimit;
 	struct cpufreq_frequency_table *dvfs_tbl;	/* from DVFS driver */
+	int	doe_max;
+	int	doe_min;
 };
 
 struct ppm_data {
 	bool is_enabled;
+	bool is_doe_enabled;
 	bool is_in_suspend;
 	unsigned int min_power_budget;
 	cpumask_var_t exclusive_core;
@@ -283,7 +286,6 @@ extern char *ppm_copy_from_user_for_proc(
 
 /* platform dependent APIs */
 extern void ppm_update_req_by_pwr(struct ppm_policy_req *req);
-extern int ppm_find_pwr_idx(struct ppm_cluster_status *cluster_status);
 extern int ppm_get_min_pwr_idx(void);
 extern int ppm_get_max_pwr_idx(void);
 

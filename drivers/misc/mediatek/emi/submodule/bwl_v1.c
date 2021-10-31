@@ -154,6 +154,29 @@ int bwl_ctrl(unsigned int scn, unsigned int op)
 	return 0;
 }
 
+#ifdef ENABLE_LATENCY_REGULATOR
+static ssize_t latency_regulator_show(struct device_driver *driver,
+				      char *buf)
+{
+	ssize_t ret = 0;
+
+	ret += snprintf(buf + ret, PAGE_SIZE - ret, "%s\n",
+			is_emi_latency_regulator_on() == 1 ? "ON" : "OFF");
+
+	return ret;
+}
+
+static ssize_t latency_regulator_store(struct device_driver *driver,
+	const char *buf, size_t count)
+{
+	return count;
+}
+
+DRIVER_ATTR(latency_regulator_config, 0644, latency_regulator_show,
+	    latency_regulator_store);
+
+#endif /* end of ENABLE_LATENCY_REGULATOR */
+
 #ifdef ENABLE_BWL_CONFIG
 #define BWL_MAX_CMD_LEN	128
 #define BWL_MAX_TOKEN	4
@@ -348,5 +371,14 @@ void bwl_init(struct platform_driver *emi_ctrl)
 	ret = driver_create_file(&emi_ctrl->driver, &driver_attr_bwl_config);
 	if (ret)
 		pr_err("[BWL] fail to bwl_config\n");
+#endif
+#ifdef ENABLE_LATENCY_REGULATOR
+	ret = driver_create_file(&emi_ctrl->driver,
+				 &driver_attr_latency_regulator_config);
+	if (ret)
+		pr_debug("[BWL] fail to latency_regulator_config\n");
+#endif
+#ifdef ENABLE_BW_MON_PLAT_INIT
+	bw_monitor_init();
 #endif
 }

@@ -20,6 +20,10 @@
 #include <SCP_sensorHub.h>
 #include "SCP_power_monitor.h"
 #include <linux/pm_wakeup.h>
+#ifdef ODM_HQ_EDIT
+    /* zhanghuan@ODM_HQ.BSP.Sensors.Config, 2018/12/11, add sensor devinfo to proc/devinfo */
+#include <linux/hq_devinfo.h>
+#endif
 
 
 #define ALSPSHUB_DEV_NAME     "alsps_hub_pl"
@@ -35,7 +39,14 @@ struct alspshub_ipi_data {
 
 	/*data */
 	u16		als;
+#ifdef ODM_HQ_EDIT
+    /* zhanghuan@ODM_HQ.BSP.Sensors.Config, 2018/12/11, add sensor devinfo to proc/devinfo */
+	int		ps;
+	int		ps_state;
+	u16		ps_crosstalk;
+#else
 	u8		ps;
+#endif
 	int		ps_cali;
 	atomic_t	als_cali;
 	atomic_t	ps_thd_val_high;
@@ -55,6 +66,10 @@ static int ps_get_data(int *value, int *status);
 static int alspshub_local_init(void);
 static int alspshub_local_remove(void);
 static int alspshub_init_flag = -1;
+#ifdef ODM_HQ_EDIT
+    /* Huan.Zhang@ODM_HQ.BSP.Sensors.Config, 2018/12/22, add ps node for factory test */
+static int ps_offset = 0;
+#endif
 static struct alsps_init_info alspshub_init_info = {
 	.name = "alsps_hub",
 	.init = alspshub_local_init,
@@ -80,6 +95,63 @@ enum {
 	CMC_TRC_DEBUG = 0x8000,
 } CMC_TRC;
 
+#ifdef ODM_HQ_EDIT
+    /* zhanghuan@ODM_HQ.BSP.Sensors.Config, 2018/12/11, add ps node for factory test */
+long alspshub_read_ps(int *ps)
+{
+	long res;
+	struct alspshub_ipi_data *obj = obj_ipi_data;
+	struct data_unit_t data_t;
+
+	res = sensor_get_data_from_hub(ID_PROXIMITY, &data_t);
+	if (res < 0) {
+		*ps = -1;
+		pr_err("sensor_get_data_from_hub fail, (ID: %d)\n", ID_PROXIMITY);
+		return -1;
+	}
+	if (data_t.proximity_t.steps < obj->ps_cali)
+		*ps = 0;
+	else
+		*ps = data_t.proximity_t.steps - obj->ps_cali;
+	return 0;
+}
+
+long alspshub_read_ps_state(int *ps)
+{
+	long res;
+	struct data_unit_t data_t;
+
+	res = sensor_get_data_from_hub(ID_PROXIMITY, &data_t);
+	if (res < 0) {
+		*ps = -1;
+		pr_err("sensor_get_data_from_hub fail, (ID: %d)\n", ID_PROXIMITY);
+		return -1;
+	}
+
+	*ps = data_t.proximity_t.oneshot;
+
+	pr_err("alspshub_read_ps_state = %d\n", *ps);
+
+    return 0;
+}
+
+long alspshub_read_als(u16 *als)
+{
+	long res = 0;
+	struct data_unit_t data_t;
+
+	res = sensor_get_data_from_hub(ID_LIGHT, &data_t);
+	if (res < 0) {
+		*als = -1;
+		pr_err("sensor_set_cmd_to_hub fail, (ID: %d),(action: %d)\n", ID_LIGHT, CUST_ACTION_GET_RAW_DATA);
+		return -1;
+	}
+
+	*als = data_t.data[0];//als raw data;
+	pr_err("alspshub_read_als:als_raw data = %d\n",*als);
+	return 0;
+}
+#else
 long alspshub_read_ps(u8 *ps)
 {
 	long res;
@@ -116,6 +188,7 @@ long alspshub_read_als(u16 *als)
 
 	return 0;
 }
+#endif
 
 static ssize_t alspshub_show_trace(struct device_driver *ddri, char *buf)
 {
@@ -158,7 +231,40 @@ static ssize_t alspshub_store_trace(struct device_driver *ddri,
 	}
 	return count;
 }
+#ifdef ODM_HQ_EDIT
+    /* Huan.Zhang@ODM_HQ.BSP.Sensors.Config, 2018/12/24, modify node feedback */
+static ssize_t alspshub_show_als(struct device_driver *ddri, char *buf)
+{
+	int res = 0;
+	struct alspshub_ipi_data *obj = obj_ipi_data;
 
+	if (!obj) {
+		pr_err("obj_ipi_data is null!!\n");
+		return 0;
+	}
+	res = alspshub_read_als(&obj->als);
+	if (res)
+		return snprintf(buf, PAGE_SIZE, "ERROR: %d\n", res);
+	else
+		return snprintf(buf, PAGE_SIZE, "%d\n", obj->als);
+}
+
+static ssize_t alspshub_show_ps(struct device_driver *ddri, char *buf)
+{
+	ssize_t res = 0;
+	struct alspshub_ipi_data *obj = obj_ipi_data;
+
+	if (!obj) {
+		pr_err("cm3623_obj is null!!\n");
+		return 0;
+	}
+	res = alspshub_read_ps(&obj->ps);
+	if (res)
+		return snprintf(buf, PAGE_SIZE, "ERROR: %d\n", (int)res);
+	else
+		return snprintf(buf, PAGE_SIZE, "%d\n", obj->ps);
+}
+#else
 static ssize_t alspshub_show_als(struct device_driver *ddri, char *buf)
 {
 	int res = 0;
@@ -190,6 +296,88 @@ static ssize_t alspshub_show_ps(struct device_driver *ddri, char *buf)
 	else
 		return snprintf(buf, PAGE_SIZE, "0x%04X\n", obj->ps);
 }
+#endif
+
+#ifdef ODM_HQ_EDIT
+    /* Huan.Zhang@ODM_HQ.BSP.Sensors.Config, 2018/12/22, add ps node for factory test */
+static ssize_t alspshub_show_ps_state(struct device_driver *ddri, char *buf)
+{
+	ssize_t res = 0;
+	struct alspshub_ipi_data *obj = obj_ipi_data;
+
+	if (!obj) {
+		pr_err("ps_obj is null!!\n");
+		return 0;
+	}
+	res = alspshub_read_ps_state(&obj->ps_state);
+	if (res)
+		return snprintf(buf, PAGE_SIZE, "ERROR: %d\n", (int)res);
+	else
+		return snprintf(buf, PAGE_SIZE, "%d\n", obj->ps_state);
+}
+
+static ssize_t alspshub_show_ps_raw(struct device_driver *ddri, char *buf)
+{
+	ssize_t res = 0;
+	struct alspshub_ipi_data *obj = obj_ipi_data;
+
+	if (!obj) {
+		pr_err("obj null!!\n");
+		return scnprintf(buf, PAGE_SIZE, "%d\n", 0);
+	}
+	res = alspshub_read_ps(&obj->ps);
+	if (res)
+		return snprintf(buf, PAGE_SIZE, "ERROR: %d\n", (int)res);
+	else
+		return scnprintf(buf, PAGE_SIZE, "%d\n",obj->ps);
+}
+
+static ssize_t alspshub_show_als_cali(struct device_driver *ddri, char *buf)
+{
+	struct alspshub_ipi_data *obj = obj_ipi_data;
+
+	if (!obj) {
+		pr_err("ps_obj is null!!\n");
+		return 0;
+	}
+	return snprintf(buf, PAGE_SIZE, "%d\n", atomic_read(&obj->als_cali));
+}
+
+static ssize_t alspshub_show_ps_offset(struct device_driver *ddri, char *buf)
+{
+	return snprintf(buf, PAGE_SIZE, "%d\n", ps_offset);
+}
+
+static ssize_t alspshub_store_ps_offset(struct device_driver *ddri,
+				const char *buf, size_t count)
+{
+	int offset = 0;
+	int ret = 0;
+
+	ret = sscanf(buf, "%d", &offset);
+	if (ret != 1) {
+		pr_err("invalid content: '%s', length = %zu\n", buf, count);
+		return count;
+	}
+	ps_offset = offset;
+	return count;
+}
+
+static ssize_t alspshub_show_ps_cali_data(struct device_driver *ddri, char *buf)
+{
+	struct alspshub_ipi_data *obj = obj_ipi_data;
+	int threshold[2], delta, offset;
+	if (!obj) {
+		pr_err("ps_obj is null!!\n");
+		return 0;
+	}
+	offset = ps_offset;
+	threshold[0] = atomic_read(&obj->ps_thd_val_high);
+	threshold[1] = atomic_read(&obj->ps_thd_val_low);
+	delta = threshold[1] - offset;
+	return snprintf(buf, PAGE_SIZE, "offset:%-4d high:%-4d low:%-4d delta:%-4d\n", offset, threshold[0], threshold[1], delta);
+}
+#endif
 
 static ssize_t alspshub_show_reg(struct device_driver *ddri, char *buf)
 {
@@ -235,6 +423,14 @@ static ssize_t alspshub_show_alsval(struct device_driver *ddri, char *buf)
 
 static DRIVER_ATTR(als, 0644, alspshub_show_als, NULL);
 static DRIVER_ATTR(ps, 0644, alspshub_show_ps, NULL);
+#ifdef ODM_HQ_EDIT
+    /* zhanghuan@ODM_HQ.BSP.Sensors.Config, 2018/12/11, add ps node for factory test */
+static DRIVER_ATTR(ps_state, 0644, alspshub_show_ps_state, NULL);
+static DRIVER_ATTR(ps_raw, 0644, alspshub_show_ps_raw,  NULL );
+static DRIVER_ATTR(hq_ps_cali_data, 0644, alspshub_show_ps_cali_data,  NULL );
+static DRIVER_ATTR(als_cali, 0644, alspshub_show_als_cali,  NULL );
+static DRIVER_ATTR(offset, 0644, alspshub_show_ps_offset, alspshub_store_ps_offset);
+#endif
 static DRIVER_ATTR(alslv, 0644, alspshub_show_alslv, NULL);
 static DRIVER_ATTR(alsval, 0644, alspshub_show_alsval, NULL);
 static DRIVER_ATTR(trace, 0644, alspshub_show_trace,
@@ -247,6 +443,14 @@ static struct driver_attribute *alspshub_attr_list[] = {
 	&driver_attr_alslv,
 	&driver_attr_alsval,
 	&driver_attr_reg,
+#ifdef ODM_HQ_EDIT
+    /* zhanghuan@ODM_HQ.BSP.Sensors.Config, 2018/12/11, add ps node for factory test */
+	&driver_attr_ps_state,
+	&driver_attr_ps_raw,
+	&driver_attr_hq_ps_cali_data,
+	&driver_attr_als_cali,
+	&driver_attr_offset,
+#endif
 };
 
 static int alspshub_create_attr(struct device_driver *driver)
@@ -323,55 +527,60 @@ static void alspshub_init_done_work(struct work_struct *work)
 }
 static int ps_recv_data(struct data_unit_t *event, void *reserved)
 {
+	int err = 0;
 	struct alspshub_ipi_data *obj = obj_ipi_data;
 
 	if (!obj)
-		return -1;
+		return 0;
 
 	if (event->flush_action == FLUSH_ACTION)
-		ps_flush_report();
+		err = ps_flush_report();
 	else if (event->flush_action == DATA_ACTION &&
 			READ_ONCE(obj->ps_android_enable) == true) {
 		__pm_wakeup_event(&obj->ps_wake_lock, msecs_to_jiffies(100));
-		ps_data_report(event->proximity_t.oneshot,
+		err = ps_data_report(event->proximity_t.oneshot,
 			SENSOR_STATUS_ACCURACY_HIGH);
 	} else if (event->flush_action == CALI_ACTION) {
 		spin_lock(&calibration_lock);
 		atomic_set(&obj->ps_thd_val_high, event->data[0]);
 		atomic_set(&obj->ps_thd_val_low, event->data[1]);
 		spin_unlock(&calibration_lock);
-		ps_cali_report(event->data);
+		err = ps_cali_report(event->data);
 	}
-	return 0;
+	return err;
 }
 static int als_recv_data(struct data_unit_t *event, void *reserved)
 {
+	int err = 0;
 	struct alspshub_ipi_data *obj = obj_ipi_data;
 
 	if (!obj)
-		return -1;
+		return 0;
 
 	if (event->flush_action == FLUSH_ACTION)
-		als_flush_report();
+		err = als_flush_report();
 	else if ((event->flush_action == DATA_ACTION) &&
 			READ_ONCE(obj->als_android_enable) == true)
-		als_data_report(event->light, SENSOR_STATUS_ACCURACY_MEDIUM);
+		err = als_data_report(event->light,
+			SENSOR_STATUS_ACCURACY_MEDIUM);
 	else if (event->flush_action == CALI_ACTION) {
 		spin_lock(&calibration_lock);
 		atomic_set(&obj->als_cali, event->data[0]);
 		spin_unlock(&calibration_lock);
-		als_cali_report(event->data);
+		err = als_cali_report(event->data);
 	}
-	return 0;
+	return err;
 }
 
 static int rgbw_recv_data(struct data_unit_t *event, void *reserved)
 {
+	int err = 0;
+
 	if (event->flush_action == FLUSH_ACTION)
-		rgbw_flush_report();
+		err = rgbw_flush_report();
 	else if (event->flush_action == DATA_ACTION)
-		rgbw_data_report(event->data);
-	return 0;
+		err = rgbw_data_report(event->data);
+	return err;
 }
 
 static int alshub_factory_enable_sensor(bool enable_disable,
@@ -864,6 +1073,10 @@ static int alspshub_probe(struct platform_device *pdev)
 	struct als_data_path als_data = { 0 };
 	struct ps_control_path ps_ctl = { 0 };
 	struct ps_data_path ps_data = { 0 };
+#ifdef ODM_HQ_EDIT
+    /* zhanghuan@ODM_HQ.BSP.Sensors.Config, 2018/12/11, add sensor devinfo to proc/devinfo */
+	struct sensorInfo_t devinfo;
+#endif
 
 	pr_debug("%s\n", __func__);
 	obj = kzalloc(sizeof(*obj), GFP_KERNEL);
@@ -976,6 +1189,18 @@ static int alspshub_probe(struct platform_device *pdev)
 		goto exit_create_attr_failed;
 	}
 	wakeup_source_init(&obj->ps_wake_lock, "ps_wake_lock");
+
+#ifdef ODM_HQ_EDIT
+    /* zhanghuan@ODM_HQ.BSP.Sensors.Config, 2018/12/11, add sensor devinfo to proc/devinfo */
+	err = sensor_set_cmd_to_hub(ID_LIGHT,
+		CUST_ACTION_GET_SENSOR_INFO, &devinfo);
+	if( err == 0)
+		hq_register_sensor_info(ALSPS_HQ, devinfo.name);
+	else {
+		pr_debug("[%s][%d]: err = %d\n", __func__, __LINE__, err);
+		hq_register_sensor_info(ALSPS_HQ, "stk3x3x_l");
+	}
+#endif
 
 	alspshub_init_flag = 0;
 	pr_debug("%s: OK\n", __func__);

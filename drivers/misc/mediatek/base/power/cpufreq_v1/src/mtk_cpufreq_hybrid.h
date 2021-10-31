@@ -66,7 +66,9 @@ struct cdvfs_data {
 		} set_fv;
 	} u;
 };
-
+#ifdef ENABLE_DOE
+void srate_doe(void);
+#endif
 int cpuhvfs_module_init(void);
 int cpuhvfs_set_init_sta(void);
 int cpuhvfs_set_turbo_scale(unsigned int turbo_f, unsigned int turbo_v);

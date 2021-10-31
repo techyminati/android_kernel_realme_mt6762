@@ -17,9 +17,15 @@
 
 
 
+bool audio_opendsp_id_ready(const uint8_t opendsp_id)
+{
+	return is_scp_ready(opendsp_id);
+}
+
+
 bool audio_opendsp_ready(const uint8_t task)
 {
-	return is_scp_ready(audio_get_opendsp_id(task));
+	return audio_opendsp_id_ready(audio_get_opendsp_id(task));
 }
 
 
@@ -34,12 +40,5 @@ uint32_t audio_get_ipi_id(const uint8_t task)
 	return IPI_AUDIO;
 }
 
-unsigned int audio_ipi_check_scp_status(void)
-{
-	return is_scp_ready(SCP_A_ID);
-}
 
-unsigned int get_audio_ipi_scp_location(void)
-{
-	return SCP_A_ID;
-}
+

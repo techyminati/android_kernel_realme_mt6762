@@ -15,6 +15,7 @@
  */
 
 #include <linux/vmalloc.h>         /* needed by vmalloc */
+#include <linux/slab.h>            /* needed by kmalloc */
 #include <linux/sysfs.h>
 #include <linux/device.h>       /* needed by device_* */
 #include <linux/workqueue.h>
@@ -48,8 +49,10 @@ struct adsp_status_reg {
 	unsigned int m2h;
 	unsigned int h2m;
 };
+static unsigned char *adsp_ke_buffer;
 static unsigned char *adsp_A_detail_buffer;
 static unsigned char *adsp_A_dump_buffer;
+static unsigned char *adsp_A_dram_dump_buffer;
 static unsigned char *adsp_A_dump_buffer_last;
 static unsigned int adsp_A_dump_length;
 static unsigned int adsp_A_task_context_addr;
@@ -57,6 +60,11 @@ static struct adsp_work_struct adsp_aed_work;
 static struct adsp_status_reg adsp_A_aee_status;
 static struct mutex adsp_excep_mutex;
 static struct mutex adsp_A_excep_dump_mutex;
+static int adsp_A_dram_dump(void);
+static ssize_t adsp_A_ramdump(char *buf, loff_t offset, size_t size);
+
+#define ADSP_KE_DUMP_LEN  (ADSP_A_CFG_SIZE + ADSP_A_TCM_SIZE)
+
 
 /* An ELF note in memory */
 struct memelfnote {
@@ -233,7 +241,7 @@ void adsp_reg_copy(void *bufp)
  */
 uint32_t adsp_dump_pc(void)
 {
-	if (is_adsp_ready(ADSP_A_ID))
+	if (is_adsp_ready(ADSP_A_ID) == 1)
 		return readl(ADSP_A_WDT_DEBUG_PC_REG);
 	else
 		return 0xFFFFFFFF;
@@ -355,15 +363,17 @@ static void adsp_prepare_aed_dump(char *aed_str, struct adsp_aed_cfg *aed,
 
 		adsp_taskname[TASKNAME_LENGTH - 1] = '\0';
 		str_ptr = (u8 *)core_memaddr + TASKNAME_OFFSET;
-		memcpy(adsp_taskname, (void *)str_ptr, strlen(str_ptr)+1);
-		pr_info("[ADSP AEE]last adsp_taskname=%s, strlen=%lu\n",
-			adsp_taskname, strlen(str_ptr));
+		memcpy(adsp_taskname, (void *)str_ptr,
+			(TASKNAME_LENGTH - 1));
+		pr_info("[ADSP AEE]last adsp_taskname=%s\n",
+			adsp_taskname);
 
 		adsp_assert_info[ASSERTINFO_LENGTH - 1] = '\0';
 		str_ptr = (u8 *)core_memaddr + ASSERTINFO_OFFSET;
-		memcpy(adsp_assert_info, (void *)str_ptr, strlen(str_ptr)+1);
-		pr_info("[ADSP AEE]adsp_assert_info=%s, strlen=%lu\n",
-			adsp_assert_info, strlen(str_ptr));
+		memcpy(adsp_assert_info, (void *)str_ptr,
+			(ASSERTINFO_LENGTH - 1));
+		pr_info("[ADSP AEE]adsp_assert_info=%s\n",
+			adsp_assert_info);
 
 		snprintf(adsp_detail, ADSP_AED_STR_LEN,
 		"%s\nadsp pc=0x%08x,sp=0x%08x\nCRDISPATCH_KEY:ADSP exception/%s\n%s",
@@ -413,6 +423,7 @@ void adsp_aed(enum adsp_excep_id type, enum adsp_core_id id)
 {
 	struct adsp_aed_cfg aed;
 	char *adsp_aed_title;
+	int db_opt = DB_OPT_DEFAULT;
 
 	mutex_lock(&adsp_excep_mutex);
 
@@ -445,6 +456,13 @@ void adsp_aed(enum adsp_excep_id type, enum adsp_core_id id)
 			adsp_aed_title = "ADSP runtime exception";
 		adsp_get_log(id);
 		break;
+	case EXCEP_KERNEL:
+		if (id == ADSP_A_ID)
+			adsp_aed_title = "ADSP_A kernel exception";
+		else
+			adsp_aed_title = "ADSP kernel exception";
+		db_opt |= DB_OPT_FTRACE;
+		break;
 	default:
 		adsp_prepare_aed("adsp unknown exception", &aed);
 		if (id == ADSP_A_ID)
@@ -459,14 +477,14 @@ void adsp_aed(enum adsp_excep_id type, enum adsp_core_id id)
 	if (type != EXCEP_LOAD_FIRMWARE) {
 		adsp_enable_dsp_clk(true);
 		adsp_prepare_aed_dump(adsp_aed_title, &aed, id);
+		adsp_A_dram_dump();
 		adsp_enable_dsp_clk(false);
 	}
 	/*print detail info. in kernel*/
 	pr_debug("%s", aed.detail);
 
 	/* adsp aed api, only detail information available*/
-	aed_common_exception_api("adsp", NULL, 0, NULL, 0, aed.detail,
-				 DB_OPT_DEFAULT);
+	aed_common_exception_api("adsp", NULL, 0, NULL, 0, aed.detail, db_opt);
 
 	pr_debug("[ADSP] adsp exception dump is done\n");
 
@@ -482,15 +500,13 @@ void adsp_aed(enum adsp_excep_id type, enum adsp_core_id id)
 void adsp_aed_reset_inplace(enum adsp_excep_id type, enum adsp_core_id id)
 {
 	pr_debug("[ADSP]%s\n", __func__);
+	adsp_reset_ready(ADSP_A_ID);
 	adsp_aed(type, id);
 #ifndef CFG_RECOVERY_SUPPORT
 	/* workaround for QA, not reset ADSP in WDT */
 	if (type == EXCEP_RUNTIME)
 		return;
 #endif
-
-	pr_debug("[ADSP] ADSP_A_REBOOT\n");
-	reset_adsp();
 
 }
 
@@ -570,13 +586,74 @@ struct bin_attribute bin_attr_adsp_trax = {
 };
 #endif
 
+static int adsp_A_dram_dump(void)
+{
+	unsigned int sys_memsize = 0, core_memsize = 0;
+	unsigned int dram_total = 0;
+	uint32_t offset = 0;
+	unsigned int clk_cfg = 0, uart_cfg = 0;
+	u64 core_memaddr = 0;
+
+	/*wait EE dump done*/
+	if (wdt_counter == WDT_FIRST_WAIT_COUNT ||
+	    wdt_counter == WDT_LAST_WAIT_COUNT)
+		return -1;
+	sys_memsize = adsp_get_reserve_mem_size(ADSP_A_SYSTEM_MEM_ID);
+	core_memsize = adsp_get_reserve_mem_size(ADSP_A_CORE_DUMP_MEM_ID);
+	/* all dram */
+	dram_total = (sys_memsize + core_memsize +
+		      ADSP_A_CFG_SIZE + ADSP_RESERVED_DRAM_SIZE);
+	mutex_lock(&adsp_A_excep_dump_mutex);
+	/* allocate adsp dump dram buffer*/
+	if (adsp_A_dram_dump_buffer == NULL)
+		adsp_A_dram_dump_buffer = vmalloc(dram_total);
+	if (!adsp_A_dram_dump_buffer) {
+		pr_debug("%s DRAM dump size malloc failed\n", __func__);
+		mutex_unlock(&adsp_A_excep_dump_mutex);
+		return -1;
+	}
+	/* all CFG registers */
+	clk_cfg = readl(ADSP_CLK_CTRL_BASE);
+	uart_cfg = readl(ADSP_UART_CTRL);
+	writel(readl(ADSP_CLK_CTRL_BASE) | ADSP_CLK_UART_EN,
+		ADSP_CLK_CTRL_BASE);
+	writel(readl(ADSP_UART_CTRL) | ADSP_UART_RST_N |
+		ADSP_UART_BCLK_CG, ADSP_UART_CTRL);
+	memcpy(adsp_A_dram_dump_buffer, ADSP_A_CFG, ADSP_A_CFG_SIZE);
+	/* Restore ADSP CLK and UART setting */
+	writel(clk_cfg, ADSP_CLK_CTRL_BASE);
+	writel(uart_cfg, ADSP_UART_CTRL);
+	offset = ADSP_A_CFG_SIZE;
+	memcpy((void *)(adsp_A_dram_dump_buffer + offset),
+		ADSP_A_SYS_DRAM, sys_memsize);
+	offset = offset + sys_memsize;
+	/* core reg dump */
+	core_memaddr = adsp_get_reserve_mem_virt(ADSP_A_CORE_DUMP_MEM_ID);
+	memcpy((void *)(adsp_A_dram_dump_buffer + offset),
+		(void *)core_memaddr, core_memsize);
+	offset = offset + core_memsize;
+	/* reserved dram dump */
+	memcpy((void *)(adsp_A_dram_dump_buffer + offset),
+		ADSP_A_SYS_DRAM + sys_memsize, ADSP_RESERVED_DRAM_SIZE);
+	mutex_unlock(&adsp_A_excep_dump_mutex);
+
+#ifdef CFG_RECOVERY_SUPPORT
+	if (atomic_read(&adsp_reset_status) == ADSP_RESET_STATUS_START ||
+		adsp_recovery_flag[ADSP_A_ID] == ADSP_RECOVERY_START) {
+		/*complete adsp ee, if adsp reset by wdt or awake fail*/
+		pr_info("[ADSP]aed finished, complete it\n");
+		complete(&adsp_sys_reset_cp);
+	}
+#endif
+	return 0;
+}
 static ssize_t adsp_A_ramdump(char *buf, loff_t offset, size_t size)
 {
 	unsigned int length = 0, sys_memsize = 0, core_memsize = 0;
 	unsigned int threshold1 = 0, threshold2 = 0, threshold3 = 0;
 	unsigned int threshold4 = 0, threshold5 = 0;
 	unsigned int clk_cfg = 0, uart_cfg = 0;
-	u64 trax_memaddr = 0, core_memaddr = 0;
+	u64 core_memaddr = 0;
 
 	sys_memsize = adsp_get_reserve_mem_size(ADSP_A_SYSTEM_MEM_ID);
 	core_memsize = adsp_get_reserve_mem_size(ADSP_A_CORE_DUMP_MEM_ID);
@@ -584,13 +661,10 @@ static ssize_t adsp_A_ramdump(char *buf, loff_t offset, size_t size)
 	threshold2 = threshold1 + ADSP_A_CFG_SIZE;
 	threshold3 = threshold2 + sys_memsize;
 	threshold4 = threshold3 + core_memsize;
-#if ADSP_TRAX
-	threshold5 = threshold4 + adsp_get_trax_length();
-#endif
+	threshold5 = threshold4;
+
 	mutex_lock(&adsp_A_excep_dump_mutex);
 
-	/* IF ADSP in suspend enable clk to dump*/
-	adsp_enable_dsp_clk(true);
 	/* CRASH_MEMORY_HEADER_SIZE + ADSP_A_TCM_SIZE + CRASH_REG_SIZE */
 	if (offset >= 0 && offset < threshold1) {
 		if ((offset + size) > threshold1)
@@ -602,6 +676,9 @@ static ssize_t adsp_A_ramdump(char *buf, loff_t offset, size_t size)
 	/* dump hifi3 cfgreg */
 	else if (offset >= threshold1 &&
 			 offset < threshold2) {
+		/* IF ADSP in suspend enable clk to dump*/
+		adsp_enable_dsp_clk(true);
+		mutex_lock(&adsp_sw_reset_mutex);
 		/* Enable ADSP CLK and UART to avoid bus hang */
 		clk_cfg = readl(ADSP_CLK_CTRL_BASE);
 		uart_cfg = readl(ADSP_UART_CTRL);
@@ -619,6 +696,8 @@ static ssize_t adsp_A_ramdump(char *buf, loff_t offset, size_t size)
 		/* Restore ADSP CLK and UART setting */
 		writel(clk_cfg, ADSP_CLK_CTRL_BASE);
 		writel(uart_cfg, ADSP_UART_CTRL);
+		mutex_unlock(&adsp_sw_reset_mutex);
+		adsp_enable_dsp_clk(false);
 	}
 	/* dump dram(reserved for adsp) */
 	else if (offset >= threshold2 &&
@@ -642,28 +721,6 @@ static ssize_t adsp_A_ramdump(char *buf, loff_t offset, size_t size)
 		memcpy(buf, (void *)core_memaddr + offset - threshold3, size);
 		length = size;
 	}
-	/* dump TRAX */
-#if ADSP_TRAX
-	else if (offset >= threshold4 &&
-			 offset < threshold5) {
-		pr_info("[ADSP]trax initiated=%d, done=%d, length=%d, offset=%lld\n",
-			adsp_get_trax_initiated(), adsp_get_trax_done(),
-			adsp_get_trax_length(), offset);
-		trax_memaddr = adsp_get_reserve_mem_virt(ADSP_A_TRAX_MEM_ID);
-
-		if (adsp_get_trax_initiated() && adsp_get_trax_done()) {
-			offset -= threshold4;
-			if (offset >= 0 && offset < adsp_get_trax_length()) {
-				if ((offset + size) > adsp_get_trax_length())
-					size = adsp_get_trax_length() - offset;
-
-				memcpy(buf, (void *)trax_memaddr + offset,
-						size);
-				length = size;
-			}
-		}
-	}
-#endif
 	else {
 		offset -= threshold5;
 		if ((offset + size) > 0x1000000) //Dump reserved dram 16MB
@@ -672,17 +729,97 @@ static ssize_t adsp_A_ramdump(char *buf, loff_t offset, size_t size)
 		memcpy(buf, ADSP_A_SYS_DRAM + 0x700000  + offset, size);
 		length = size;
 	}
-	adsp_enable_dsp_clk(false);
 	mutex_unlock(&adsp_A_excep_dump_mutex);
+	/* dump done*/
+#ifdef CFG_RECOVERY_SUPPORT
+	if (!length) {
+		if (atomic_read(&adsp_reset_status) == ADSP_RESET_STATUS_START
+		    || adsp_recovery_flag[ADSP_A_ID] == ADSP_RECOVERY_START) {
+			/*complete scp ee, if scp reset by wdt or awake fail*/
+			pr_info("[ADSP]aed finished, complete it\n");
+			complete(&adsp_sys_reset_cp);
+		}
+	}
+#endif
+	return length;
+}
+
+static ssize_t adsp_A_ramdump_buf(char *buf, loff_t offset, size_t size)
+{
+
+	unsigned int length = 0, sys_memsize = 0, core_memsize = 0;
+	unsigned int threshold1 = 0, threshold2 = 0;
+
+	sys_memsize = adsp_get_reserve_mem_size(ADSP_A_SYSTEM_MEM_ID);
+	core_memsize = adsp_get_reserve_mem_size(ADSP_A_CORE_DUMP_MEM_ID);
+	threshold1 = adsp_A_dump_length;
+	threshold2 = threshold1 + ADSP_A_CFG_SIZE +
+		     sys_memsize + core_memsize + ADSP_RESERVED_DRAM_SIZE;
+	/* if dynamically allocate buffer done*/
+	if (adsp_A_dram_dump_buffer && adsp_A_dump_buffer) {
+
+		mutex_lock(&adsp_A_excep_dump_mutex);
+
+	/* CRASH_MEMORY_HEADER_SIZE + ADSP_A_TCM_SIZE + CRASH_REG_SIZE */
+		if (offset >= 0 && offset < threshold1) {
+			if ((offset + size) > threshold1)
+				size = threshold1 - offset;
+			memcpy(buf, adsp_A_dump_buffer + offset, size);
+			length = size;
+		} else {
+			if ((offset + size) > threshold2)
+				size = threshold2 - offset;
+			memcpy(buf, (adsp_A_dram_dump_buffer +
+				offset - threshold1), size);
+			length = size;
+			if (length == 0) {
+				if (adsp_A_dram_dump_buffer) {
+					vfree(adsp_A_dram_dump_buffer);
+					adsp_A_dram_dump_buffer = NULL;
+				}
+			}
+		}
+
+		mutex_unlock(&adsp_A_excep_dump_mutex);
+
+	} else
+		length = adsp_A_ramdump(buf, offset, size);
 
 	return length;
+}
+
+void adsp_dump_cfgreg(void)
+{
+	unsigned int clk_cfg = 0, uart_cfg = 0, offset = 0;
+
+	adsp_enable_dsp_clk(true);
+	/* all CFG registers */
+	clk_cfg = readl(ADSP_CLK_CTRL_BASE);
+	uart_cfg = readl(ADSP_UART_CTRL);
+	writel(readl(ADSP_CLK_CTRL_BASE) | ADSP_CLK_UART_EN,
+		ADSP_CLK_CTRL_BASE);
+	writel(readl(ADSP_UART_CTRL) | ADSP_UART_RST_N |
+		ADSP_UART_BCLK_CG, ADSP_UART_CTRL);
+	memcpy(adsp_ke_buffer, ADSP_A_CFG, ADSP_A_CFG_SIZE);
+	/* Restore ADSP CLK and UART setting */
+	writel(clk_cfg, ADSP_CLK_CTRL_BASE);
+	writel(uart_cfg, ADSP_UART_CTRL);
+	offset = ADSP_A_CFG_SIZE;
+	/* all TCM */
+	memcpy((void *)(adsp_ke_buffer + offset),
+			(void *)(ADSP_A_ITCM), (ADSP_A_ITCM_SIZE));
+	offset += ADSP_A_ITCM_SIZE;
+	memcpy((void *)(adsp_ke_buffer + offset),
+			(void *)(ADSP_A_DTCM), (ADSP_A_DTCM_SIZE));
+
+	adsp_enable_dsp_clk(false);
 }
 
 static ssize_t adsp_A_dump_show(struct file *filep, struct kobject *kobj,
 				struct bin_attribute *attr,
 				char *buf, loff_t offset, size_t size)
 {
-	return adsp_A_ramdump(buf, offset, size);
+	return adsp_A_ramdump_buf(buf, offset, size);
 }
 
 static ssize_t adsp_A_dump_ke_show(struct file *filep, struct kobject *kobj,
@@ -691,12 +828,16 @@ static ssize_t adsp_A_dump_ke_show(struct file *filep, struct kobject *kobj,
 {
 	struct MemoryDump *pMemoryDump;
 
-	pMemoryDump = (struct MemoryDump *)adsp_A_dump_buffer;
-	adsp_enable_dsp_clk(true);
-	memset(pMemoryDump, 0x0, sizeof(*pMemoryDump));
-	adsp_A_dump_length = adsp_crash_dump(pMemoryDump, ADSP_A_ID);
-	adsp_enable_dsp_clk(false);
-
+	if (offset == 0) { // only do ITCM/DTCM ramdump once at start
+		pMemoryDump = (struct MemoryDump *)adsp_A_dump_buffer;
+		adsp_enable_dsp_clk(true);
+		mutex_lock(&adsp_sw_reset_mutex);
+		memset(pMemoryDump, 0x0, sizeof(*pMemoryDump));
+		adsp_A_dump_length = adsp_crash_dump(pMemoryDump, ADSP_A_ID);
+		mutex_unlock(&adsp_sw_reset_mutex);
+		adsp_enable_dsp_clk(false);
+		pr_debug("[ADSP] %s ITCM/DTCM dump done\n", __func__);
+	}
 	return adsp_A_ramdump(buf, offset, size);
 }
 
@@ -741,6 +882,9 @@ int adsp_excep_init(void)
 	if (!adsp_A_dump_buffer_last)
 		return -1;
 
+	adsp_ke_buffer = kmalloc(ADSP_KE_DUMP_LEN, GFP_KERNEL);
+	if (!adsp_ke_buffer)
+		return -1;
 
 	/* init global values */
 	adsp_A_dump_length = 0;
@@ -772,8 +916,19 @@ void adsp_excep_cleanup(void)
 	vfree(adsp_A_detail_buffer);
 	vfree(adsp_A_dump_buffer_last);
 	vfree(adsp_A_dump_buffer);
+	kfree(adsp_ke_buffer);
 
 	adsp_A_task_context_addr = 0;
 
 	pr_debug("[ADSP] %s done\n", __func__);
 }
+
+void get_adsp_aee_buffer(unsigned long *vaddr, unsigned long *size)
+{
+	if (adsp_ke_buffer) {
+		adsp_dump_cfgreg();
+		*vaddr = (unsigned long)adsp_ke_buffer;
+		*size = ADSP_KE_DUMP_LEN;
+	}
+}
+EXPORT_SYMBOL(get_adsp_aee_buffer);

@@ -19,6 +19,10 @@
 #include <SCP_sensorHub.h>
 #include <accel.h>
 #include <hwmsensor.h>
+#ifdef ODM_HQ_EDIT
+    /* zhanghuan@ODM_HQ.BSP.Sensors.Config, 2018/12/11, add sensor devinfo to proc/devinfo */
+#include <linux/hq_devinfo.h>
+#endif
 
 #define DEBUG 1
 #define SW_CALIBRATION
@@ -572,7 +576,6 @@ static int gsensor_factory_get_cali(int32_t data[3])
 		return -1;
 	}
 #else
-	init_completion(&obj->calibration_done);
 	err = wait_for_completion_timeout(&obj->calibration_done,
 					  msecs_to_jiffies(3000));
 	if (!err) {
@@ -586,7 +589,15 @@ static int gsensor_factory_get_cali(int32_t data[3])
 	status = obj->static_cali_status;
 	spin_unlock(&calibration_lock);
 	if (status != 0) {
+#ifdef ODM_HQ_EDIT
+		/* Huan.Zhang@ODM_HQ.BSP.Sensors.Config, 2019/1/21, add threhold for gsensor calibraiton */
+		if(status == 2)
+			pr_err("gsensor over threhold!\n");
+		else
+			pr_err("gsensor static cali detect shake!\n");
+#else
 		pr_debug("gsensor static cali detect shake!\n");
+#endif
 		return -2;
 	}
 #endif
@@ -601,7 +612,6 @@ static int gsensor_factory_do_self_test(void)
 	if (ret < 0)
 		return -1;
 
-	init_completion(&obj->selftest_done);
 	ret = wait_for_completion_timeout(&obj->selftest_done,
 					  msecs_to_jiffies(3000));
 	if (!ret)
@@ -758,6 +768,10 @@ static int accelhub_probe(struct platform_device *pdev)
 	struct accelhub_ipi_data *obj;
 	struct acc_control_path ctl = {0};
 	struct acc_data_path data = {0};
+#ifdef ODM_HQ_EDIT
+    /* zhanghuan@ODM_HQ.BSP.Sensors.Config, 2018/12/11, add sensor devinfo to proc/devinfo */
+	struct sensorInfo_t devinfo;
+#endif
 	int err = 0;
 
 	pr_debug("%s\n", __func__);
@@ -831,6 +845,15 @@ static int accelhub_probe(struct platform_device *pdev)
 		goto exit_create_attr_failed;
 	}
 	gsensor_init_flag = 0;
+
+#ifdef ODM_HQ_EDIT
+    /* zhanghuan@ODM_HQ.BSP.Sensors.Config, 2018/12/11, add sensor devinfo to proc/devinfo */
+	err = sensor_set_cmd_to_hub(ID_ACCELEROMETER,
+		CUST_ACTION_GET_SENSOR_INFO, &devinfo);
+	if( err == 0)
+		hq_register_sensor_info(ACCEL_HQ, devinfo.name);
+#endif
+
 	pr_debug("%s: OK\n", __func__);
 	return 0;
 

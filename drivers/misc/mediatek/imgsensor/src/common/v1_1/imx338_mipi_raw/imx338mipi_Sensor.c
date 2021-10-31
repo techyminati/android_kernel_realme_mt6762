@@ -431,6 +431,29 @@ static struct SENSOR_VC_INFO_STRUCT SENSOR_VC_INFO[3] = {
 	 0x02, 0x00, 0x0000, 0x0000, 0x03, 0x00, 0x0000, 0x0000}
 };
 
+static struct SENSOR_VC_INFO2_STRUCT SENSOR_VC_INFO2[3] = {
+	/* Preview mode setting */
+	{0x03, 0x0a, 0x00, 0x08, 0x40, 0x00,
+	 {{VC_RAW_DATA, 0x00, 0x2b, 0x0A70, 0x07D8},
+	 {VC_HDR_MVHDR, 0x00, 0x35, 0x0280, 0x0001},
+	 {VC_PDAF_STATS, 0x00, 0x36, 0x0C48, 0x0001},},
+	 1
+	},
+
+	/* Capture mode setting */
+	{0x03, 0x0a, 0x00, 0x08, 0x40, 0x00,
+	 {{VC_RAW_DATA, 0x00, 0x2b, 0x14E0, 0x0FB0},
+	 {VC_HDR_MVHDR, 0x00, 0x35, 0x0280, 0x0001},
+	 {VC_PDAF_STATS, 0x00, 0x36, 0x1a18, 0x0001},},
+	 1
+	},
+	/* Video mode setting */
+	{0x02, 0x0a, 0x00, 0x08, 0x40, 0x00,
+	 {{VC_RAW_DATA, 0x00, 0x2b, 0x14E0, 0x0FB0},
+	 {VC_HDR_MVHDR, 0x00, 0x35, 0x0280, 0x0001},},
+	 1
+	},
+};
 struct SENSOR_ATR_INFO {
 	MUINT16 DarkLimit_H;
 	MUINT16 DarkLimit_L;
@@ -1256,9 +1279,8 @@ static kal_uint16 imx338_table_write_cmos_sensor(
 		}
 #if MULTI_WRITE
 
-		if (tosend >= I2C_BUFFER_LEN ||
-		    len == IDX  ||
-		    addr != addr_last) {
+		if ((I2C_BUFFER_LEN - tosend) < 3
+				|| IDX == len || addr != addr_last) {
 
 			iBurstWriteReg_multi(puSendCmd,
 				tosend,
@@ -4219,9 +4241,110 @@ static kal_uint32 feature_control(MSDK_SENSOR_FEATURE_ENUM feature_id,
 
 	MSDK_SENSOR_REG_INFO_STRUCT *sensor_reg_data =
 		(MSDK_SENSOR_REG_INFO_STRUCT *) feature_para;
+	struct SENSOR_VC_INFO2_STRUCT *pvcinfo2;
 
 	/*pr_debug("feature_id = %d\n", feature_id);*/
 	switch (feature_id) {
+	case SENSOR_FEATURE_GET_PIXEL_CLOCK_FREQ_BY_SCENARIO:
+		switch (*feature_data) {
+		case MSDK_SCENARIO_ID_CAMERA_CAPTURE_JPEG:
+			*(MUINT32 *)(uintptr_t)(*(feature_data + 1))
+				= imgsensor_info.cap.pclk;
+			break;
+		case MSDK_SCENARIO_ID_VIDEO_PREVIEW:
+			*(MUINT32 *)(uintptr_t)(*(feature_data + 1))
+				= imgsensor_info.normal_video.pclk;
+			break;
+		case MSDK_SCENARIO_ID_HIGH_SPEED_VIDEO:
+			*(MUINT32 *)(uintptr_t)(*(feature_data + 1))
+				= imgsensor_info.hs_video.pclk;
+			break;
+		case MSDK_SCENARIO_ID_CUSTOM1:
+			*(MUINT32 *)(uintptr_t)(*(feature_data + 1))
+				= imgsensor_info.custom1.pclk;
+			break;
+		case MSDK_SCENARIO_ID_CUSTOM2:
+			*(MUINT32 *)(uintptr_t)(*(feature_data + 1))
+				= imgsensor_info.custom2.pclk;
+			break;
+		case MSDK_SCENARIO_ID_CUSTOM3:
+			*(MUINT32 *)(uintptr_t)(*(feature_data + 1))
+				= imgsensor_info.custom3.pclk;
+			break;
+		case MSDK_SCENARIO_ID_CUSTOM4:
+			*(MUINT32 *)(uintptr_t)(*(feature_data + 1))
+				= imgsensor_info.custom4.pclk;
+			break;
+		case MSDK_SCENARIO_ID_CUSTOM5:
+			*(MUINT32 *)(uintptr_t)(*(feature_data + 1))
+				= imgsensor_info.custom5.pclk;
+			break;
+		case MSDK_SCENARIO_ID_SLIM_VIDEO:
+			*(MUINT32 *)(uintptr_t)(*(feature_data + 1))
+				= imgsensor_info.slim_video.pclk;
+			break;
+		case MSDK_SCENARIO_ID_CAMERA_PREVIEW:
+		default:
+			*(MUINT32 *)(uintptr_t)(*(feature_data + 1))
+				= imgsensor_info.pre.pclk;
+			break;
+		}
+		break;
+	case SENSOR_FEATURE_GET_PERIOD_BY_SCENARIO:
+		switch (*feature_data) {
+		case MSDK_SCENARIO_ID_CAMERA_CAPTURE_JPEG:
+			*(MUINT32 *)(uintptr_t)(*(feature_data + 1))
+			= (imgsensor_info.cap.framelength << 16)
+				+ imgsensor_info.cap.linelength;
+			break;
+		case MSDK_SCENARIO_ID_VIDEO_PREVIEW:
+			*(MUINT32 *)(uintptr_t)(*(feature_data + 1))
+			= (imgsensor_info.normal_video.framelength << 16)
+				+ imgsensor_info.normal_video.linelength;
+			break;
+		case MSDK_SCENARIO_ID_HIGH_SPEED_VIDEO:
+			*(MUINT32 *)(uintptr_t)(*(feature_data + 1))
+			= (imgsensor_info.hs_video.framelength << 16)
+				+ imgsensor_info.hs_video.linelength;
+			break;
+		case MSDK_SCENARIO_ID_SLIM_VIDEO:
+			*(MUINT32 *)(uintptr_t)(*(feature_data + 1))
+			= (imgsensor_info.slim_video.framelength << 16)
+				+ imgsensor_info.slim_video.linelength;
+			break;
+		case MSDK_SCENARIO_ID_CUSTOM1:
+			*(MUINT32 *)(uintptr_t)(*(feature_data + 1))
+			= (imgsensor_info.custom1.framelength << 16)
+				+ imgsensor_info.custom1.linelength;
+			break;
+		case MSDK_SCENARIO_ID_CUSTOM2:
+			*(MUINT32 *)(uintptr_t)(*(feature_data + 1))
+			= (imgsensor_info.custom2.framelength << 16)
+				+ imgsensor_info.custom2.linelength;
+			break;
+		case MSDK_SCENARIO_ID_CUSTOM3:
+			*(MUINT32 *)(uintptr_t)(*(feature_data + 1))
+			= (imgsensor_info.custom3.framelength << 16)
+				+ imgsensor_info.custom3.linelength;
+			break;
+		case MSDK_SCENARIO_ID_CUSTOM4:
+			*(MUINT32 *)(uintptr_t)(*(feature_data + 1))
+			= (imgsensor_info.custom4.framelength << 16)
+				+ imgsensor_info.custom4.linelength;
+			break;
+		case MSDK_SCENARIO_ID_CUSTOM5:
+			*(MUINT32 *)(uintptr_t)(*(feature_data + 1))
+			= (imgsensor_info.custom5.framelength << 16)
+				+ imgsensor_info.custom5.linelength;
+			break;
+		case MSDK_SCENARIO_ID_CAMERA_PREVIEW:
+		default:
+			*(MUINT32 *)(uintptr_t)(*(feature_data + 1))
+			= (imgsensor_info.pre.framelength << 16)
+				+ imgsensor_info.pre.linelength;
+			break;
+		}
+		break;
 	case SENSOR_FEATURE_GET_PERIOD:
 		*feature_return_para_16++ = imgsensor.line_length;
 		*feature_return_para_16 = imgsensor.frame_length;
@@ -4374,6 +4497,29 @@ static kal_uint32 feature_control(MSDK_SENSOR_FEATURE_ENUM feature_id,
 		    (UINT16) *(feature_data + 1),
 		    (UINT16) *(feature_data + 2));
 
+		break;
+	case SENSOR_FEATURE_GET_VC_INFO2:
+		pr_debug("SENSOR_FEATURE_GET_VC_INFO2 %d\n",
+			(UINT16) (*feature_data));
+
+		pvcinfo2 =
+	(struct SENSOR_VC_INFO2_STRUCT *) (uintptr_t) (*(feature_data + 1));
+
+		switch (*feature_data_32) {
+		case MSDK_SCENARIO_ID_CAMERA_CAPTURE_JPEG:
+		  memcpy((void *)pvcinfo2, (void *)&SENSOR_VC_INFO2[1],
+			sizeof(struct SENSOR_VC_INFO2_STRUCT));
+			break;
+		case MSDK_SCENARIO_ID_VIDEO_PREVIEW:
+		  memcpy((void *)pvcinfo2, (void *)&SENSOR_VC_INFO2[2],
+			sizeof(struct SENSOR_VC_INFO2_STRUCT));
+			break;
+		case MSDK_SCENARIO_ID_CAMERA_PREVIEW:
+		default:
+			memcpy((void *)pvcinfo2, (void *)&SENSOR_VC_INFO2[0],
+			sizeof(struct SENSOR_VC_INFO2_STRUCT));
+			break;
+		}
 		break;
 	case SENSOR_FEATURE_GET_VC_INFO:
 		pr_debug("SENSOR_FEATURE_GET_VC_INFO %d\n",

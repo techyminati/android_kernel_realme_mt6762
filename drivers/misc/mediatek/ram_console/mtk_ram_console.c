@@ -1703,7 +1703,7 @@ void aee_rr_rec_etc_mode(u8 val)
 
 int aee_rr_init_thermal_temp(int num)
 {
-	if (num < 0 || num >= THERMAL_RESERVED_TZS) {
+	if (num < 0 || num > THERMAL_RESERVED_TZS) {
 		pr_notice("%s num= %d\n", __func__, num);
 		return -1;
 	}
@@ -3318,6 +3318,7 @@ last_rr_show_t aee_rr_show[] = {
 	aee_rr_show_ptp_cpu_cci_volt_2,
 	aee_rr_show_ptp_cpu_cci_volt_3,
 	aee_rr_show_ptp_gpu_volt,
+	aee_rr_show_ptp_gpu_volt_1,
 	aee_rr_show_ptp_gpu_volt_2,
 	aee_rr_show_ptp_gpu_volt_3,
 	aee_rr_show_ptp_temp,

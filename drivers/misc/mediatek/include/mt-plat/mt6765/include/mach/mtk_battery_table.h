@@ -31,14 +31,27 @@
 #define Q_MAX_H_CURRENT 10000
 
 /* multiple battery profile compile options */
+#ifndef ODM_HQ_EDIT
+/*duanhanxing@ODM.HQ.BSP.Charger 2018.11.29 add for get battert id by auxadx*/
 /*#define MTK_GET_BATTERY_ID_BY_AUXADC*/
-
+#else
+#define MTK_GET_BATTERY_ID_BY_AUXADC
+#endif /*ODM_HQ_EDIT*/
 
 /* if ACTIVE_TABLE == 0 && MULTI_BATTERY == 0
  * load g_FG_PSEUDO100_Tx from dtsi
  */
 #define MULTI_BATTERY 0
+#ifdef ODM_HQ_EDIT
+/*Hanxing.Duan@ODM.HQ.BSP.CHG.Basic 2018.12.18 modify battery id check*/
+#define BATTERY_ID_CHANNEL_NUM 2
+#define ATL_BATTERY_VOLTAGE_MAX	950000
+#define ATL_BATTERY_VOLTAGE_MIN	850000
+#define SDI_BATTERY_VOLTAGE_MAX	420000
+#define SDI_BATTERY_VOLTAGE_MIN	300000
+#else /*ODM_HQ_EDIT*/
 #define BATTERY_ID_CHANNEL_NUM 1
+#endif /*ODM_HQ_EDIT*/
 #define BATTERY_PROFILE_ID 0
 #define TOTAL_BATTERY_NUMBER 4
 
@@ -52,6 +65,38 @@
 /*#define MTK_GET_BATTERY_ID_BY_GPIO*/
 
 /* Qmax for battery  */
+#ifdef ODM_HQ_EDIT
+/*Hanxing.Duan@ODM.HQ.BSP.CHG.Basic 2019.1.8 modify for charger QMAX*/
+int g_Q_MAX[MAX_TABLE][TOTAL_BATTERY_NUMBER] = {
+	/*bat1,   bat2,   bat3,    bat4*/
+	{ 3958, 3998, 2490, 1965},/*T0*/
+	{ 3958, 3998, 2468, 1984},/*T1*/
+	{ 3958, 3998, 2310, 1946},/*T2*/
+	{ 3958, 3998, 1858, 1873},/*T3*/
+	{ 3958, 3998, 1843, 1851},/*T4*/
+	{ 3958, 3998, 1533, 1541},/*T5*/
+	{ 3958, 3998, 1523, 1531},/*T6*/
+	{ 3958, 3998, 1513, 1521},/*T7*/
+	{ 3958, 3998, 1503, 1511},/*T8*/
+	{ 3958, 3998, 1493, 1501} /*T9*/
+};
+
+int g_Q_MAX_H_CURRENT[MAX_TABLE][TOTAL_BATTERY_NUMBER] = {
+	/*bat1,   bat2,   bat3,    bat4*/
+	{ 3658, 3698, 2190, 1665},/*T0*/
+	{ 3658, 3698, 2168, 1684},/*T1*/
+	{ 3658, 3698, 2010, 1646},/*T2*/
+	{ 3658, 3698, 1558, 1573},/*T3*/
+	{ 3658, 3698, 1543, 1551},/*T4*/
+	{ 3658, 3698, 1533, 1541},/*T5*/
+	{ 3658, 3698, 1523, 1531},/*T6*/
+	{ 3658, 3698, 1513, 1521},/*T7*/
+	{ 3658, 3698, 1503, 1511},/*T8*/
+	{ 3658, 3698, 1493, 1501} /*T9*/
+};
+#else /*ODM_HQ_EDIT*/
+
+int g_Q_MAX_SYS_VOLTAGE[TOTAL_BATTERY_NUMBER] = { 3400, 3400, 3400, 3400};
 int g_Q_MAX[MAX_TABLE][TOTAL_BATTERY_NUMBER] = {
 	/*bat1,   bat2,   bat3,    bat4*/
 	{ 2946, 2712, 2490, 1965},/*T0*/
@@ -79,6 +124,7 @@ int g_Q_MAX_H_CURRENT[MAX_TABLE][TOTAL_BATTERY_NUMBER] = {
 	{ 2180, 1620, 1503, 1511},/*T8*/
 	{ 2170, 1610, 1493, 1501} /*T9*/
 };
+#endif /*ODM_HQ_EDIT*/
 
 int g_Q_MAX_SYS_VOLTAGE[TOTAL_BATTERY_NUMBER] = { 3400, 3400, 3400, 3400};
 
@@ -212,7 +258,12 @@ int g_temperature[MAX_TABLE] = {
 #define BIF_NTC_R 16000
 
 #if (BAT_NTC_10 == 1)
+#ifndef ODM_HQ_EDIT
+/*Hanxing.Duan@ODM.HQ.BSP.CHG.Basic 2019.04.10 add more Rntc to temp */
 struct FUELGAUGE_TEMPERATURE Fg_Temperature_Table[21] = {
+#else /*ODM_HQ_EDIT*/
+struct FUELGAUGE_TEMPERATURE Fg_Temperature_Table[28] = {
+#endif /*ODM_HQ_EDIT*/
 		{-40, 195652},
 		{-35, 148171},
 		{-30, 113347},
@@ -233,7 +284,19 @@ struct FUELGAUGE_TEMPERATURE Fg_Temperature_Table[21] = {
 		{45, 4917},
 		{50, 4161},
 		{55, 3535},
+#ifndef ODM_HQ_EDIT
+/*Hanxing.Duan@ODM.HQ.BSP.CHG.Basic 2019.04.10 add more Rntc to temp */
 		{60, 3014}
+#else /*ODM_HQ_EDIT*/
+		{60, 3014},
+		{65, 2650},
+		{70, 2284},
+		{75, 1976},
+		{80, 1715},
+		{85, 1494},
+		{90, 1306},
+		{95, 1146}
+#endif /*ODM_HQ_EDIT*/
 };
 #endif
 

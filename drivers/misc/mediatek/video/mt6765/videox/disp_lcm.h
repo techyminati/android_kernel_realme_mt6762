@@ -70,4 +70,9 @@ int disp_lcm_is_partial_support(struct disp_lcm_handle *plcm);
 int disp_lcm_validate_roi(struct disp_lcm_handle *plcm,
 	int *x, int *y, int *w, int *h);
 int disp_lcm_aod(struct disp_lcm_handle *plcm, int enter);
+
+#ifdef VENDOR_EDIT
+/* Yongpeng.Yi@PSW.MultiMedia.Display.LCD.Machine, 2018/09/10, Add for Porting cabc interface */
+int disp_lcm_oppo_set_lcm_cabc_cmd(struct disp_lcm_handle *plcm, void *handle, unsigned int level);
+#endif /* VENDOR_EDIT */
 #endif

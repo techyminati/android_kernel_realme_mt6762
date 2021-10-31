@@ -163,7 +163,8 @@ static int mcdi_stress_task(void *arg)
 static void mcdi_stress_start(void)
 {
 	int i;
-	char name[16] = {0};
+	char name[24] = {0};
+	int ret = 0;
 
 	if (mcdi_stress_en)
 		return;
@@ -171,7 +172,9 @@ static void mcdi_stress_start(void)
 	mcdi_stress_en = true;
 
 	for (i = 0; i < NF_CPU; i++) {
-		snprintf(name, sizeof(name), "mcdi_stress_task%d", i);
+		ret = scnprintf(name, sizeof(name), "mcdi_stress_task%d", i);
+		if (ret == 0)
+			pr_info("[mcdi]%s task naming fail\n", __func__);
 
 		mcdi_stress_tsk[i] =
 			kthread_create(mcdi_stress_task, NULL, name);

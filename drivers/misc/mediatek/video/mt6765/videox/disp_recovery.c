@@ -101,6 +101,12 @@ static unsigned int extd_esd_check_mode;
 static unsigned int extd_esd_check_enable;
 #endif
 
+#ifdef ODM_HQ_EDIT
+/* wangxianfei@ODM.HQ.Multimedia.LCM 2018/12/14 add power seq for esd recovery */
+unsigned int esd_recovery_state=0;
+unsigned int esd_recovery_backlight_level = 1023;
+#endif /* ODM_HQ_EDIT */
+
 unsigned int get_esd_check_mode(void)
 {
 	return esd_check_mode;
@@ -737,6 +743,10 @@ static int primary_display_check_recovery_worker_kthread(void *data)
 		i = 0; /* repeat */
 		do {
 			ret = primary_display_esd_check();
+#ifdef ODM_HQ_EDIT
+/* Xianfei.Wang@ODM.HQ.Multimedia.LCM 2019/03/26 add power seq for esd recovery */
+			esd_recovery_state=ret;
+#endif
 			if (!ret) /* success */
 				break;
 
@@ -847,7 +857,11 @@ int primary_display_esd_recovery(void)
 	disp_lcm_esd_recover(primary_get_lcm());
 	DISPCHECK("[ESD]lcm recover[end]\n");
 	mmprofile_log_ex(mmp_r, MMPROFILE_FLAG_PULSE, 0, 8);
-
+#ifdef ODM_HQ_EDIT
+/* wangxianfei@ODM.HQ.Multimedia.LCM 2018/12/14
+		* add power seq for esd recovery */
+	disp_lcm_set_backlight(primary_get_lcm(), NULL ,esd_recovery_backlight_level);
+#endif
 	DISPDBG("[ESD]start dpmgr path[begin]\n");
 	if (disp_partial_is_support()) {
 		struct disp_ddp_path_config *data_config =

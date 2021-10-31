@@ -11,18 +11,16 @@
 # GNU General Public License for more details.
 #
 
-ccflags-y += -I$(srctree)/drivers/staging/android/ion \
+ccflags-$(CONFIG_MTK_CCU) += -I$(srctree)/drivers/staging/android/ion \
              -I$(srctree)/drivers/staging/android/ion/mtk
-ccflags-y += -I$(srctree)/drivers/misc/mediatek/m4u/$(MTK_PLATFORM)/
-ccflags-y += -I$(srctree)/drivers/misc/mediatek/include/mt-plat
-ccflags-y += -I$(srctree)/drivers/misc/mediatek/ccu/src/$(MTK_PLATFORM)/
-ccflags-y += -I$(srctree)/drivers/misc/mediatek/ccu/src/$(MTK_PLATFORM)/ccu_ext_interface/
-ccflags-y += -I$(srctree)/drivers/i2c/busses
+ccflags-$(CONFIG_MTK_CCU) += -I$(srctree)/drivers/misc/mediatek/m4u/$(MTK_PLATFORM)/
+ccflags-$(CONFIG_MTK_CCU) += -I$(srctree)/drivers/misc/mediatek/include/mt-plat
+ccflags-$(CONFIG_MTK_CCU) += -I$(srctree)/drivers/misc/mediatek/ccu/src/$(MTK_PLATFORM)/
+ccflags-$(CONFIG_MTK_CCU) += -I$(srctree)/drivers/misc/mediatek/ccu/src/$(MTK_PLATFORM)/ccu_ext_interface/
+ccflags-$(CONFIG_MTK_CCU) += -I$(srctree)/drivers/i2c/busses
 
-ccflags-y += -I$(srctree)/drivers/iommu/
+ccflags-$(CONFIG_MTK_CCU) += -I$(srctree)/drivers/iommu/
 $(warning CCU_INC=$(srctree)/drivers/misc/mediatek/ccu/src/$(MTK_PLATFORM)/ccu_ext_interface)
 
-#$(warning $(subdir-ccflags-y))
-
 #obj-$(CONFIG_MTK_VPU) += ccu_drv.o ccu_algo.o ccu_dbg.o
-obj-y += ccu_drv.o ccu_n3d_a.o ccu_i2c.o
+obj-$(CONFIG_MTK_CCU) += ccu_drv.o ccu_n3d_a.o ccu_i2c.o

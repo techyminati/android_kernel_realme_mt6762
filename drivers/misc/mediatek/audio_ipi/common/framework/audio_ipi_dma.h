@@ -101,6 +101,7 @@ int audio_ipi_dma_alloc_region(const uint8_t task,
 			       const uint32_t dsp_to_ap_size);
 
 int audio_ipi_dma_free_region(const uint8_t task);
+int audio_ipi_dma_free_region_all_task(void);
 
 
 

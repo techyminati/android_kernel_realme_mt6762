@@ -84,7 +84,7 @@ typedef struct {
 } m4u_client_t;
 
 struct port_mva_info_t {
-	int eModuleID;
+	int module_id;
 	unsigned long va;
 	unsigned int BufSize;
 	int security;

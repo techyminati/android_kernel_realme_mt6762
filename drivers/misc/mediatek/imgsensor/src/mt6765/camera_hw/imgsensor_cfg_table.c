@@ -29,16 +29,17 @@ enum IMGSENSOR_RETURN
 	/*imgsensor_hw_mt6306_open,*/
 	imgsensor_hw_mclk_open
 };
-
+//zhaiyankun_hq@ODM_HQ.Multimedia.Camera.driver, 2018/12/7, modified for bring up start
 struct IMGSENSOR_HW_CFG imgsensor_custom_config[] = {
 	{
 		IMGSENSOR_SENSOR_IDX_MAIN,
 		IMGSENSOR_I2C_DEV_0,
 		{
 			{IMGSENSOR_HW_ID_MCLK, IMGSENSOR_HW_PIN_MCLK},
-			{IMGSENSOR_HW_ID_REGULATOR, IMGSENSOR_HW_PIN_AVDD},
+			{IMGSENSOR_HW_ID_GPIO, IMGSENSOR_HW_PIN_AVDD},
 			{IMGSENSOR_HW_ID_REGULATOR, IMGSENSOR_HW_PIN_DOVDD},
-			{IMGSENSOR_HW_ID_GPIO, IMGSENSOR_HW_PIN_DVDD},
+			{IMGSENSOR_HW_ID_REGULATOR, IMGSENSOR_HW_PIN_DVDD},
+			{IMGSENSOR_HW_ID_REGULATOR, IMGSENSOR_HW_PIN_AFVDD},
 			{IMGSENSOR_HW_ID_GPIO, IMGSENSOR_HW_PIN_PDN},
 			{IMGSENSOR_HW_ID_GPIO, IMGSENSOR_HW_PIN_RST},
 			{IMGSENSOR_HW_ID_NONE, IMGSENSOR_HW_PIN_NONE},
@@ -51,7 +52,7 @@ struct IMGSENSOR_HW_CFG imgsensor_custom_config[] = {
 			{IMGSENSOR_HW_ID_MCLK, IMGSENSOR_HW_PIN_MCLK},
 			{IMGSENSOR_HW_ID_GPIO, IMGSENSOR_HW_PIN_AVDD},
 			{IMGSENSOR_HW_ID_REGULATOR, IMGSENSOR_HW_PIN_DOVDD},
-			{IMGSENSOR_HW_ID_GPIO, IMGSENSOR_HW_PIN_DVDD},
+			{IMGSENSOR_HW_ID_REGULATOR, IMGSENSOR_HW_PIN_DVDD},
 			{IMGSENSOR_HW_ID_GPIO, IMGSENSOR_HW_PIN_PDN},
 			{IMGSENSOR_HW_ID_GPIO, IMGSENSOR_HW_PIN_RST},
 			{IMGSENSOR_HW_ID_NONE, IMGSENSOR_HW_PIN_NONE},
@@ -83,10 +84,23 @@ struct IMGSENSOR_HW_CFG imgsensor_custom_config[] = {
 			{IMGSENSOR_HW_ID_NONE, IMGSENSOR_HW_PIN_NONE},
 		},
 	},
+	{
+		IMGSENSOR_SENSOR_IDX_MAIN3,
+		IMGSENSOR_I2C_DEV_2,
+		{
+			{IMGSENSOR_HW_ID_MCLK, IMGSENSOR_HW_PIN_MCLK},
+			{IMGSENSOR_HW_ID_GPIO, IMGSENSOR_HW_PIN_AVDD},
+			{IMGSENSOR_HW_ID_REGULATOR, IMGSENSOR_HW_PIN_DOVDD},
+			{IMGSENSOR_HW_ID_REGULATOR, IMGSENSOR_HW_PIN_DVDD},
+			{IMGSENSOR_HW_ID_GPIO, IMGSENSOR_HW_PIN_PDN},
+			{IMGSENSOR_HW_ID_GPIO, IMGSENSOR_HW_PIN_RST},
+			{IMGSENSOR_HW_ID_NONE, IMGSENSOR_HW_PIN_NONE},
+		},
+	},
 
 	{IMGSENSOR_SENSOR_IDX_NONE}
 };
-
+//zhaiyankun_hq@ODM_HQ.Multimedia.Camera.driver, 2018/12/7, modified for bring up end
 struct IMGSENSOR_HW_POWER_SEQ platform_power_sequence[] = {
 #ifdef MIPI_SWITCH
 	{
@@ -675,6 +689,87 @@ struct IMGSENSOR_HW_POWER_SEQ sensor_power_sequence[] = {
 		},
 	},
 #endif
+//zhaiyankun_hq@ODM_HQ.Multimedia.Camera.driver, 2018/12/7, add for bring up start
+#if defined(HI846_MIPI_RAW)
+	{
+		SENSOR_DRVNAME_HI846_MIPI_RAW,
+		{
+			{PDN, Vol_Low, 1},
+			{RST, Vol_Low, 1},
+			{DOVDD, Vol_1800, 5},
+			{AVDD, Vol_2800, 5},
+			{DVDD, Vol_1200, 5},
+			{AFVDD, Vol_2800, 5},
+			{SensorMCLK, Vol_High, 5},
+			{PDN, Vol_High, 5},
+			{RST, Vol_High, 10}
+		},
+	},
+#endif
+#if defined(HI556_MIPI_RAW)
+	{
+		SENSOR_DRVNAME_HI556_MIPI_RAW,
+		{
+			{PDN, Vol_Low, 1},
+			{RST, Vol_Low, 1},
+			{DOVDD, Vol_1800, 5},
+			{AVDD, Vol_2800, 5},
+			{DVDD, Vol_1200, 5},
+			{SensorMCLK, Vol_High, 5},
+			{PDN, Vol_High, 5},
+			{RST, Vol_High, 10}
+		},
+	},
+#endif
+#if defined(GC2375H_MIPI_RAW)
+	{
+		SENSOR_DRVNAME_GC2375H_MIPI_RAW,
+		{
+			{PDN, Vol_High, 5},
+			{RST, Vol_Low, 5},
+			{DOVDD, Vol_1800, 5},
+			{DVDD, Vol_1200, 5},
+			{AVDD, Vol_2800, 5},
+			{SensorMCLK, Vol_High, 0},
+			{PDN, Vol_Low, 5},
+			{RST, Vol_High, 5}
+		},
+	},
+#endif
+#if defined(GC5035_MIPI_RAW)
+	{
+		SENSOR_DRVNAME_GC5035_MIPI_RAW,
+		{
+			{PDN, Vol_High, 5},
+			{RST, Vol_Low, 5},
+			{DOVDD, Vol_1800, 5},
+			{DVDD, Vol_1200, 5},
+			{AVDD, Vol_2800, 5},
+			{SensorMCLK, Vol_High, 0},
+			{PDN, Vol_Low, 5},
+			{RST, Vol_High, 5}
+		},
+	},
+#endif
+
+/* chenlijun_hq@ODM_HQ.Multimedia.camera, 2018/12/10, modify for camera bring up*/
+#if defined(S5K3H7YX_MIPI_RAW)
+		{
+			SENSOR_DRVNAME_S5K3H7YX_MIPI_RAW,
+			{
+				{PDN, Vol_Low, 1},
+				{RST, Vol_Low, 1},
+				{DOVDD, Vol_1800, 5},
+				{AVDD, Vol_2800, 5},
+				{DVDD, Vol_1200, 5},
+				{AFVDD, Vol_2800, 5},
+				{SensorMCLK, Vol_High, 5},
+				{PDN, Vol_High, 5},
+				{RST, Vol_High, 10}
+			},
+		},
+#endif
+//zhaiyankun_hq@ODM_HQ.Multimedia.Camera.driver, 2018/12/7, add for bring up end
 	/* add new sensor before this line */
 	{NULL,},
 };

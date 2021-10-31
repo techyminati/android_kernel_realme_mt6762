@@ -2038,6 +2038,41 @@ static int fgauge_enable_car_tune_value_calibration(
 	return 0;
 }
 
+#ifdef ODM_HQ_EDIT
+/*Hanxing.Duan@ODM.HQ.BSP.CHG.Gauge 2019.02.25 add set monitic soc for RTC*/
+static int fgauge_set_rtc_monitic_soc(struct gauge_device *gauge_dev, int rtc_ui_soc)
+{
+	int spare3_reg = get_rtc_spare_monitic_soc_value();
+	int spare3_reg_valid;
+	int new_spare3_reg;
+
+	spare3_reg_valid = (spare3_reg & 0x80);
+	new_spare3_reg = spare3_reg_valid + rtc_ui_soc;
+
+	/* set spare3 0x7f */
+	set_rtc_spare_monitic_soc_value(new_spare3_reg);
+
+	bm_notice("[fg_set_monitic_rtc_ui_soc] rtc_ui_soc %d spare3_reg 0x%x new_spare3_reg 0x%x\n",
+		rtc_ui_soc, spare3_reg, new_spare3_reg);
+
+	return 0;
+}
+
+static int fgauge_get_rtc_monitic_soc(struct gauge_device *gauge_dev, int *ui_soc)
+{
+	int spare3_reg = get_rtc_spare_monitic_soc_value();
+	int rtc_ui_soc;
+
+	rtc_ui_soc = (spare3_reg & 0x7f);
+
+	*ui_soc = rtc_ui_soc;
+	bm_notice("[fgauge_get_monitic_rtc_ui_soc] rtc_ui_soc %d spare3_reg 0x%x\n",
+		rtc_ui_soc, spare3_reg);
+
+	return 0;
+}
+#endif /*ODM_HQ_EDIT*/
+
 static int fgauge_set_rtc_ui_soc(struct gauge_device *gauge_dev, int rtc_ui_soc)
 {
 	int spare3_reg = get_rtc_spare_fg_value();
@@ -2254,6 +2289,11 @@ static struct gauge_ops mt6357_gauge_ops = {
 	.gauge_get_hw_version = fgauge_get_hw_version,
 	.gauge_set_info = fgauge_set_info,
 	.gauge_get_info = fgauge_get_info,
+#ifdef ODM_HQ_EDIT
+/*Hanxing.Duan@ODM.HQ.BSP.CHG.Gauge 2019.02.25 add set monitci soc for rtc*/
+	.gauge_get_rtc_monitic_soc = fgauge_get_rtc_monitic_soc,
+	.gauge_set_rtc_monitic_soc = fgauge_set_rtc_monitic_soc,
+#endif /*ODM_HQ_EDIT*/
 };
 
 static int mt6357_parse_dt(struct mt6357_gauge *info, struct device *dev)

@@ -135,9 +135,9 @@ out0:
 /* udi_pinmux_switch */
 static int udi_pinmux_proc_show(struct seq_file *m, void *v)
 {
-	seq_printf(m, "UDI pinmux reg[0x%p] = 0x%x.\n",
+	seq_printf(m, "CPU UDI pinmux reg[0x%p] = 0x%x.\n",
 		UDIPIN_UDI_MUX1, udi_read(UDIPIN_UDI_MUX1));
-	seq_printf(m, "UDI pinmux reg[0x%p] = 0x%x.\n",
+	seq_printf(m, "CPU UDI pinmux reg[0x%p] = 0x%x.\n",
 		UDIPIN_UDI_MUX2, udi_read(UDIPIN_UDI_MUX2));
 	return 0;
 }

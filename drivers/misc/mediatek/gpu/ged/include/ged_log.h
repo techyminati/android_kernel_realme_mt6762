@@ -71,7 +71,7 @@ void ged_log_dump(GED_LOG_BUF_HANDLE hLogBuf);
 
 #if defined(CONFIG_MACH_MT8167) || defined(CONFIG_MACH_MT8173) ||\
 defined(CONFIG_MACH_MT6739) || defined(CONFIG_MACH_MT6761)\
-|| defined(CONFIG_MACH_MT6765)
+|| defined(CONFIG_MACH_MT6765) || defined(CONFIG_MACH_MT6779)
 extern void ged_dump_fw(void);
 #endif
 

@@ -97,8 +97,14 @@ static long alsps_factory_unlocked_ioctl(struct file *file, unsigned int cmd,
 			return -EFAULT;
 		if (alsps_factory.fops != NULL &&
 		    alsps_factory.fops->als_enable_sensor != NULL) {
+			#ifdef ODM_HQ_EDIT
+			/* Huan.Zhang@ODM_HQ.BSP.Sensors.Config, 2018/12/27, modify als sample rate */
+			err = alsps_factory.fops->als_enable_sensor(enable,
+								    100);
+			#else
 			err = alsps_factory.fops->als_enable_sensor(enable,
 								    200);
+			#endif
 			if (err < 0) {
 				pr_err("ALSPS_SET_ALS_MODE fail!\n");
 				return -EINVAL;

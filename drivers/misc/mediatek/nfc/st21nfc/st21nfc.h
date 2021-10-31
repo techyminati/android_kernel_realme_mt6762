@@ -39,3 +39,6 @@ struct st21nfc_platform_data {
 	unsigned int reset_gpio;
 	unsigned int polarity_mode;
 };
+
+void st21nfc_register_reset_cb(void (*cb)(int, void *), void *data);
+void st21nfc_unregister_reset_cb(void);

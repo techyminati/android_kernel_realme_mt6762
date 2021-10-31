@@ -97,6 +97,13 @@
 #include <linux/pm_qos.h>
 #endif
 
+#ifdef VENDOR_EDIT
+/*
+* Ling.Guo@PSW.MM.Display.LCD.Stability, 2018/01/05,
+* add power seq api for ulps
+*/
+#include <linux/leds.h>
+#endif /*VENDOR_EDIT*/
 #define MMSYS_CLK_LOW (0)
 #define MMSYS_CLK_HIGH (1)
 #define TUI_SINGLE_WINDOW_MODE (0)
@@ -763,10 +770,8 @@ static unsigned int _fps_ctx_calc_cur_fps(struct fps_ctx_t *fps_ctx,
 	unsigned long long delta;
 	unsigned long long fps = 1000000000;
 
-	if (cur_ns > fps_ctx->last_trig) {
-		delta = cur_ns - fps_ctx->last_trig;
-		do_div(fps, delta);
-	}
+	delta = cur_ns - fps_ctx->last_trig;
+	do_div(fps, delta);
 
 	if (fps > 120ULL)
 		fps = 120ULL;
@@ -2195,6 +2200,15 @@ static int _DC_switch_to_DL_fast(int block)
 	/* copy ovl config from DC handle to DL handle */
 	memcpy(data_config_dl->ovl_config, data_config_dc->ovl_config,
 		sizeof(data_config_dl->ovl_config));
+#ifdef ODM_HQ_EDIT
+/* Xianfei.Wang@ODM.HQ.Multimedia.LCM 2019/2/21 mtk released patch for display timeout */
+	memcpy(&data_config_dl->rsz_enable, &data_config_dc->rsz_enable,
+		sizeof(data_config_dc->rsz_enable));
+	memcpy(&data_config_dl->rsz_src_roi, &data_config_dc->rsz_src_roi,
+		sizeof(data_config_dc->rsz_src_roi));
+	memcpy(&data_config_dl->rsz_dst_roi, &data_config_dc->rsz_dst_roi,
+		sizeof(data_config_dc->rsz_dst_roi));
+#endif
 	/* before power off, we should wait wdma0_eof first!!! */
 	_cmdq_flush_config_handle_mira(pgc->cmdq_handle_ovl1to2_config, 1);
 	cmdqRecReset(pgc->cmdq_handle_ovl1to2_config);
@@ -4772,6 +4786,30 @@ int primary_display_get_lcm_index(void)
 	return index;
 }
 
+#ifdef VENDOR_EDIT
+/* Xinqin.Yang@Cam.Tuning.Display, 2018/11/17, add for multi-lcms */
+int _ioctl_get_lcm_module_info(unsigned long arg)
+{
+	int ret = 0;
+	void __user *argp = (void __user *)arg;
+	LCM_MODULE_INFO info;
+
+	if (copy_from_user(&info, argp, sizeof(info))) {
+		DISPERR("[FB]: copy_from_user failed! line:%d\n", __LINE__);
+		return -EFAULT;
+	}
+
+	strcpy(info.name, pgc->plcm->drv->name);
+
+	if (copy_to_user(argp, &info, sizeof(info))) {
+		DISPERR("[FB]: copy_to_user failed! line:%d\n", __LINE__);
+		ret = -EFAULT;
+	}
+
+	return ret;
+}
+#endif /* VENDOR_EDIT */
+
 static int check_switch_lcm_mode_for_debug(void)
 {
 	static enum LCM_DSI_MODE_CON vdo_mode_type;
@@ -6142,7 +6180,7 @@ static void _ovl_yuv_throughput_freq_request
 
 static void _ovl_sbch_invalid_config(struct cmdqRecStruct *cmdq_handle)
 {
-	int i = 0;
+	int i = 0, j = 0;
 	CMDQ_VARIABLE sbch_invalid_status;
 	CMDQ_VARIABLE result;
 	CMDQ_VARIABLE shift;
@@ -6151,8 +6189,8 @@ static void _ovl_sbch_invalid_config(struct cmdqRecStruct *cmdq_handle)
 	cmdq_op_init_variable(&result);
 	cmdq_op_init_variable(&shift);
 
-	for (i = 0; i < OVL_NUM; i++) {
-		unsigned long ovl_base = ovl_base_addr(i);
+	for (j = 0; j < OVL_NUM; j++) {
+		unsigned long ovl_base = ovl_base_addr(j);
 
 		if (ovl_base == 0)
 			continue;
@@ -8041,6 +8079,90 @@ int primary_display_setlcm_cmd(unsigned int *lcm_cmd, unsigned int *lcm_count,
 
 	return ret;
 }
+
+#ifdef VENDOR_EDIT
+/*
+* Ling.Guo@PSW.MM.Display.LCD.Stability, 2018/11/12,
+* add display feature interface
+*/
+int _set_cabc_mode_by_cmdq(unsigned int level)
+{
+	int ret = 0;
+	struct cmdqRecStruct *cmdq_handle_lcm_cmd = NULL;
+
+	mmprofile_log_ex(ddp_mmp_get_events()->primary_set_cmd, MMPROFILE_FLAG_PULSE, 1, 1);
+	ret = cmdqRecCreate(CMDQ_SCENARIO_PRIMARY_DISP, &cmdq_handle_lcm_cmd);
+	DISPDBG("_set_cabc_mode_by_cmdq primary set lcm cmd, handle=%p\n", cmdq_handle_lcm_cmd);
+	if (ret) {
+		DISPCHECK("fail to create primary cmdq handle for _set_cabc_mode_by_cmdq\n");
+		return -1;
+	}
+
+	if (primary_display_is_video_mode()) {
+		mmprofile_log_ex(ddp_mmp_get_events()->primary_set_cmd, MMPROFILE_FLAG_PULSE, 1, 2);
+		cmdqRecReset(cmdq_handle_lcm_cmd);
+		disp_lcm_oppo_set_lcm_cabc_cmd(pgc->plcm, cmdq_handle_lcm_cmd, level);
+		_cmdq_flush_config_handle_mira(cmdq_handle_lcm_cmd, 1);
+		DISPCHECK("[CMD]_set_cabc_mode_by_cmdq is_video_mode test ret=%d\n", ret);
+	} else {
+		mmprofile_log_ex(ddp_mmp_get_events()->primary_set_bl, MMPROFILE_FLAG_PULSE, 1, 3);
+		cmdqRecReset(cmdq_handle_lcm_cmd);
+		_cmdq_handle_clear_dirty(cmdq_handle_lcm_cmd);
+		_cmdq_insert_wait_frame_done_token_mira(cmdq_handle_lcm_cmd);
+
+		disp_lcm_oppo_set_lcm_cabc_cmd(pgc->plcm, cmdq_handle_lcm_cmd, level);
+		cmdqRecSetEventToken(cmdq_handle_lcm_cmd, CMDQ_SYNC_TOKEN_CONFIG_DIRTY);
+		mmprofile_log_ex(ddp_mmp_get_events()->primary_set_cmd, MMPROFILE_FLAG_PULSE, 1, 4);
+		_cmdq_flush_config_handle_mira(cmdq_handle_lcm_cmd, 1);
+		mmprofile_log_ex(ddp_mmp_get_events()->primary_set_cmd, MMPROFILE_FLAG_PULSE, 1, 6);
+		DISPCHECK("[CMD]_set_cabc_mode_by_cmdq is_cmd_mode ret=%d\n", ret);
+	}
+	cmdqRecDestroy(cmdq_handle_lcm_cmd);
+	cmdq_handle_lcm_cmd = NULL;
+	mmprofile_log_ex(ddp_mmp_get_events()->primary_set_cmd, MMPROFILE_FLAG_PULSE, 1, 5);
+	return ret;
+}
+
+int primary_display_set_cabc_mode(unsigned int level)
+{
+	int ret = 0;
+
+	DISPFUNC();
+	if (disp_helper_get_stage() != DISP_HELPER_STAGE_NORMAL) {
+		DISPMSG("%s skip due to stage %s\n", __func__, disp_helper_stage_spy());
+		return 0;
+	}
+
+	mmprofile_log_ex(ddp_mmp_get_events()->primary_set_cmd, MMPROFILE_FLAG_START, 0, 0);
+
+	_primary_path_switch_dst_lock();
+	_primary_path_lock(__func__);
+
+	if (pgc->state == DISP_SLEPT) {
+		DISPCHECK("Sleep State set backlight invalid\n");
+	} else {
+		primary_display_idlemgr_kick(__func__, 0);
+		if (primary_display_cmdq_enabled()) {
+			if (primary_display_is_video_mode()) {
+				mmprofile_log_ex(ddp_mmp_get_events()->primary_set_cmd,
+						 MMPROFILE_FLAG_PULSE, 0, 7);
+				_set_cabc_mode_by_cmdq(level);
+			} else {
+				_set_cabc_mode_by_cmdq(level);
+			}
+		} else {
+			/* cpu */
+		}
+	}
+
+	_primary_path_unlock(__func__);
+	_primary_path_switch_dst_unlock();
+
+	mmprofile_log_ex(ddp_mmp_get_events()->primary_set_cmd, MMPROFILE_FLAG_END, 0, 0);
+
+	return ret;
+}
+#endif /* VENDOR_EDIT */
 
 int primary_display_mipi_clk_change(unsigned int clk_value)
 {

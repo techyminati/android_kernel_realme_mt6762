@@ -88,7 +88,7 @@ static int cpuhp_callback(struct notifier_block *nb,
 	case CPU_UP_PREPARE_FROZEN:
 		cluster = get_cpu_topology(cpu, &isalone);
 
-		pr_debug("cluster=%d, cpu=%d, isalone=%d\n",
+		pr_debug_ratelimited("cluster=%d, cpu=%d, isalone=%d\n",
 			 cluster, (int)cpu, isalone);
 
 		rc = cpuhp_platform_cpuon(cluster, cpu, isalone, action);
@@ -97,7 +97,7 @@ static int cpuhp_callback(struct notifier_block *nb,
 	case CPU_DEAD_FROZEN:
 		cluster = get_cpu_topology(cpu, &isalone);
 
-		pr_debug("cluster=%d, cpu=%d, isalone=%d\n",
+		pr_debug_ratelimited("cluster=%d, cpu=%d, isalone=%d\n",
 			 cluster, (int)cpu, isalone);
 
 		rc = cpuhp_platform_cpuoff(cluster, cpu, isalone, action);

@@ -44,6 +44,28 @@ int pmic_get_battery_voltage(void)
 	return bat;
 }
 
+#ifdef ODM_HQ_EDIT
+/*Hanxing.Duan@ODM.HQ.BSP.CHG.Basic 2018.12.14 add check battery present*/
+bool battery_present_check(void)
+{
+	int temp;
+	bool is_bat_exist;
+
+#if defined(CONFIG_MTK_PMIC_CHIP_MT6358) || defined(CONFIG_MTK_PMIC_CHIP_MT6359)
+	temp = pmic_get_register_value(PMIC_AD_BATON_UNDET);
+#else
+	temp = pmic_get_register_value(PMIC_RGS_BATON_UNDET);
+#endif
+
+	if (temp == 0)
+		is_bat_exist = true;
+	else
+		is_bat_exist = false;
+
+	return is_bat_exist;
+}
+#endif /*ODM_HQ_EDIT*/
+
 bool pmic_is_battery_exist(void)
 {
 	int temp;
@@ -61,10 +83,15 @@ bool pmic_is_battery_exist(void)
 	temp = pmic_get_register_value(PMIC_RGS_BATON_UNDET);
 #endif
 
+#ifndef ODM_HQ_EDIT
+/*Hanxing.Duan@ODM.HQ.BSP.Charger 2018.11.29 modify for disable check battery exist*/
 	if (temp == 0)
 		is_bat_exist = true;
 	else
 		is_bat_exist = false;
+#else /*ODM_HQ_EDIT*/
+		is_bat_exist = true;
+#endif /*ODM_HQ_EDIT*/
 
 
 	bm_debug(

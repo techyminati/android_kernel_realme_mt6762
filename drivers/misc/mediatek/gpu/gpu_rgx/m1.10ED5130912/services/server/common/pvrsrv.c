@@ -889,7 +889,11 @@ PVRSRVDriverInit(void)
 							CleanupThreadDumpInfo,
 							IMG_TRUE,
 							gpsPVRSRVData,
-							OS_THREAD_LOWEST_PRIORITY);
+							//#ifdef ODM_HQ_EDIT
+							//Liang.Yang@ODM_HQ.pvr_defer_free_priority, 2019/1/9
+							//OS_THREAD_LOWEST_PRIORITY);
+							0);
+							//#endif ODM_HQ_EDIT
 	if (eError != PVRSRV_OK)
 	{
 		PVR_DPF((PVR_DBG_ERROR, "%s: Failed to create deferred cleanup thread",

@@ -14,14 +14,19 @@
 #ifndef __DDP_AAL_H__
 #define __DDP_AAL_H__
 
-#if defined(CONFIG_MACH_MT6799)
+#if defined(CONFIG_MACH_MT6799) || defined(CONFIG_MACH_MT6779)
 #define AAL_HAS_DRE3            (1)
 #endif
 
 #if defined(CONFIG_MACH_MT6799) || defined(CONFIG_MACH_MT6763) || \
 	defined(CONFIG_MACH_MT6771) || defined(CONFIG_MACH_MT6775) || \
-	defined(CONFIG_MACH_MT6765) || defined(CONFIG_MACH_MT6761)
+	defined(CONFIG_MACH_MT6765) || defined(CONFIG_MACH_MT6761) || \
+	defined(CONFIG_MACH_MT6779)
 #define AAL_SUPPORT_KERNEL_API            (1)
+#endif
+
+#if defined(CONFIG_MACH_MT6779)
+#define AAL_HAS_YHIST           (1)
 #endif
 
 #define AAL_HIST_BIN            33	/* [0..32] */
@@ -37,7 +42,7 @@
 /* typedef unsigned long long aal_u32_ptr_t; */
 #define aal_u32_handle_t unsigned long long
 
-#define AAL_U32_PTR(x) ((void *)(unsigned long)x)
+#define AAL_U32_PTR(x) ((unsigned int *)(unsigned long)x)
 
 enum disp_aal_id_t {
 	DISP_AAL0 = 0,
@@ -128,6 +133,9 @@ struct DISP_AAL_HIST {
 	int essStrengthIndex;
 	int ess_enable;
 	int dre_enable;
+#endif
+#ifdef AAL_HAS_YHIST
+	unsigned int yHist[AAL_HIST_BIN];
 #endif
 };
 

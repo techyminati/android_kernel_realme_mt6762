@@ -392,6 +392,22 @@ static int st21nfc_release(struct inode *inode, struct file *file)
 	return 0;
 }
 
+static void (*st21nfc_reset_cb)(int, void *);
+static void *st21nfc_reset_data;
+
+void st21nfc_register_reset_cb(void (*cb)(int, void *), void *data)
+{
+	pr_info("%s\n", __func__);
+	st21nfc_reset_cb = cb;
+	st21nfc_reset_data = data;
+}
+void st21nfc_unregister_reset_cb(void)
+{
+	pr_info("%s\n", __func__);
+	st21nfc_reset_cb = NULL;
+	st21nfc_reset_data = NULL;
+}
+
 static long st21nfc_dev_ioctl(struct file *filp, unsigned int cmd,
 			      unsigned long arg)
 {
@@ -425,6 +441,8 @@ static long st21nfc_dev_ioctl(struct file *filp, unsigned int cmd,
 	case ST21NFC_PULSE_RESET:
 		pr_info("%s Double Pulse Request\n", __func__);
 		if (st21nfc_dev->platform_data.reset_gpio != 0) {
+			if (st21nfc_reset_cb != 0)
+				(*st21nfc_reset_cb)(1, st21nfc_reset_data);
 			/* pulse low for 20 millisecs */
 			pr_info("Pulse Request gpio is %d\n",
 				st21nfc_dev->platform_data.reset_gpio);
@@ -441,6 +459,8 @@ static long st21nfc_dev_ioctl(struct file *filp, unsigned int cmd,
 			gpio_set_value(st21nfc_dev->platform_data.reset_gpio,
 				       1);
 			pr_info("%s done Double Pulse Request\n", __func__);
+			if (st21nfc_reset_cb != 0)
+				(*st21nfc_reset_cb)(0, st21nfc_reset_data);
 		}
 		break;
 
@@ -470,6 +490,13 @@ static long st21nfc_dev_ioctl(struct file *filp, unsigned int cmd,
 		/* For ST21NFCD usage only */
 		pr_info("%s Recovery Request\n", __func__);
 		if (st21nfc_dev->platform_data.reset_gpio != 0) {
+			if (irqIsAttached) {
+				struct i2c_client *client =
+					st21nfc_dev->platform_data.client;
+
+				free_irq(client->irq, st21nfc_dev);
+				irqIsAttached = false;
+			}
 			gpio_set_value(st21nfc_dev->platform_data.reset_gpio,
 				       0);
 			msleep(20);

@@ -24,6 +24,7 @@
 #include <linux/mutex.h>
 #include <linux/kthread.h>
 #include <linux/completion.h>
+#include <linux/ktime.h>
 #include <linux/iio/iio.h>
 #include <linux/iio/buffer.h>
 #include <linux/iio/kfifo_buf.h>
@@ -37,6 +38,7 @@ struct mt6360_pmu_adc_info {
 	struct task_struct *scan_task;
 	struct completion adc_complete;
 	struct mutex adc_lock;
+	ktime_t last_off_timestamps[MAX_CHANNEL];
 };
 
 static const struct mt6360_adc_platform_data def_platform_data = {
@@ -57,7 +59,7 @@ static int mt6360_adc_get_process_val(struct mt6360_pmu_adc_info *info,
 		*val *= 1250;
 		break;
 	case TEMP_JC_CHANNEL:
-		*val -= 40;
+		*val = (*val * 105 - 8000) / 100;
 		break;
 	case VBAT_CHANNEL:
 	case VSYS_CHANNEL:
@@ -96,32 +98,27 @@ static int mt6360_adc_read_raw(struct iio_dev *iio_dev,
 	struct mt6360_pmu_adc_info *mpai = iio_priv(iio_dev);
 	long timeout;
 	u8 tmp[2], rpt[3];
+	ktime_t predict_end_t;
 	int retry_cnt = 0, ret;
 
-	dev_dbg(&iio_dev->dev, "%s: channel [%d] s\n", __func__, chan->channel);
+	mt_dbg(&iio_dev->dev, "%s: channel [%d] s\n", __func__, chan->channel);
 	mutex_lock(&mpai->adc_lock);
-	memset(tmp, 0, sizeof(tmp));
-	/* disable all channels and adc_en */
-	ret = mt6360_pmu_reg_block_write(mpai->mpi,
-					 MT6360_PMU_ADC_CONFIG, 2, tmp);
-	if (ret < 0)
-		goto err_adc_init;
-	mt6360_pmu_adc_irq_enable("adc_donei", 1);
 	/* select preferred channel that we want */
 	ret = mt6360_pmu_reg_update_bits(mpai->mpi, MT6360_PMU_ADC_RPT_1,
 					 0xf0, chan->channel << 4);
 	if (ret < 0)
-		goto err_adc_conv;
+		goto err_adc_init;
 	/* enable adc channel we want and adc_en */
+	memset(tmp, 0, sizeof(tmp));
 	tmp[0] |= (1 << 7);
-	if ((chan->channel / 8) > 0)
-		tmp[0] |= (1 << (chan->channel % 8));
-	else
-		tmp[1] |= (1 << (chan->channel % 8));
+	tmp[(chan->channel / 8) ? 0 : 1] |= (1 << (chan->channel % 8));
 	ret = mt6360_pmu_reg_block_write(mpai->mpi,
 					 MT6360_PMU_ADC_CONFIG, 2, tmp);
 	if (ret < 0)
-		goto err_adc_conv;
+		goto err_adc_init;
+	predict_end_t = ktime_add_ms(mpai->last_off_timestamps[chan->channel],
+				     50);
+	mt6360_pmu_adc_irq_enable("adc_donei", 1);
 retry:
 	if (retry_cnt++ > ADC_RETRY_CNT) {
 		dev_err(mpai->dev, "reach adc retry cnt\n");
@@ -145,8 +142,12 @@ retry:
 		goto err_adc_conv;
 	/* get report channel */
 	if ((rpt[0] & 0x0f) != chan->channel) {
-		dev_dbg(&iio_dev->dev,
+		mt_dbg(&iio_dev->dev,
 			"not wanted channel report [%02x]\n", rpt[0]);
+		goto retry;
+	}
+	if (!ktime_after(ktime_get(), predict_end_t)) {
+		dev_dbg(&iio_dev->dev, "time is not after 50ms chan_time\n");
 		goto retry;
 	}
 	switch (mask) {
@@ -164,14 +165,15 @@ retry:
 	}
 	ret = IIO_VAL_INT;
 err_adc_conv:
-	/* restore to default, disable all channels, except adc_en */
-	tmp[0] &= ~(0x7);
-	tmp[1] = 0;
-	mt6360_pmu_reg_block_write(mpai->mpi, MT6360_PMU_ADC_CONFIG, 2, tmp);
 	mt6360_pmu_adc_irq_enable("adc_donei", 0);
+	/* whatever disable all channels, except adc_en */
+	memset(tmp, 0, sizeof(tmp));
+	tmp[0] |= (1 << 7);
+	mt6360_pmu_reg_block_write(mpai->mpi, MT6360_PMU_ADC_CONFIG, 2, tmp);
+	mpai->last_off_timestamps[chan->channel] = ktime_get();
 err_adc_init:
 	mutex_unlock(&mpai->adc_lock);
-	dev_dbg(&iio_dev->dev, "%s: channel [%d] e\n", __func__, chan->channel);
+	mt_dbg(&iio_dev->dev, "%s: channel [%d] e\n", __func__, chan->channel);
 	return ret;
 }
 
@@ -232,7 +234,7 @@ static irqreturn_t mt6360_pmu_adc_donei_handler(int irq, void *data)
 {
 	struct mt6360_pmu_adc_info *mpai = iio_priv(data);
 
-	dev_dbg(mpai->dev, "%s\n", __func__);
+	mt_dbg(mpai->dev, "%s\n", __func__);
 	complete(&mpai->adc_complete);
 	return IRQ_HANDLED;
 }
@@ -258,7 +260,7 @@ static void mt6360_pmu_adc_irq_enable(const char *name, int en)
 			if (en)
 				enable_irq(irq_desc->irq);
 			else
-				disable_irq(irq_desc->irq);
+				disable_irq_nosync(irq_desc->irq);
 			break;
 		}
 	}
@@ -387,7 +389,12 @@ static int mt6360_adc_iio_device_register(struct iio_dev *indio_dev)
 static inline int mt6360_pmu_adc_reset(struct mt6360_pmu_adc_info *info)
 {
 	u8 tmp[3] = {0x80, 0, 0};
+	ktime_t all_off_time;
+	int i;
 
+	all_off_time = ktime_get();
+	for (i = 0; i < MAX_CHANNEL; i++)
+		info->last_off_timestamps[i] = all_off_time;
 	/* enable adc_en, clear adc_chn_en/zcv/en/adc_wait_t/adc_idle_t */
 	return mt6360_pmu_reg_block_write(info->mpi,
 					  MT6360_PMU_ADC_CONFIG, 3, tmp);
