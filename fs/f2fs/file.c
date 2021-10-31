@@ -23,6 +23,7 @@
 #include <linux/uio.h>
 #include <linux/uuid.h>
 #include <linux/file.h>
+#include <linux/delay.h>
 
 #include "f2fs.h"
 #include "node.h"
@@ -32,6 +33,9 @@
 #include "gc.h"
 #include "trace.h"
 #include <trace/events/f2fs.h>
+
+static int delayflush;
+unsigned long current_flush_merge;
 
 static int f2fs_filemap_fault(struct vm_area_struct *vma,
 					struct vm_fault *vmf)
@@ -113,8 +117,7 @@ mapped:
 	f2fs_wait_on_page_writeback(page, DATA, false);
 
 	/* wait for GCed page writeback via META_MAPPING */
-	if (f2fs_post_read_required(inode))
-		f2fs_wait_on_block_writeback(sbi, dn.data_blkaddr);
+	f2fs_wait_on_block_writeback(inode, dn.data_blkaddr);
 
 out_sem:
 	up_read(&F2FS_I(inode)->i_mmap_sem);
@@ -310,6 +313,14 @@ sync_nodes:
 flush_out:
 	if (!atomic && F2FS_OPTION(sbi).fsync_mode != FSYNC_MODE_NOBARRIER)
 		ret = f2fs_issue_flush(sbi, inode->i_ino);
+	else {
+		delayflush++;
+		if ((current_flush_merge != 0) &&
+			(delayflush >= current_flush_merge)) {
+			ret = f2fs_issue_flush(sbi, inode->i_ino);
+			delayflush = 1;
+		}
+	}
 	if (!ret) {
 		remove_ino_entry(sbi, ino, UPDATE_INO);
 		clear_inode_flag(inode, FI_UPDATE_WRITE);

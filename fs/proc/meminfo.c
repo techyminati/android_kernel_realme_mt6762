@@ -154,6 +154,8 @@ static int meminfo_proc_show(struct seq_file *m, void *v)
 		    global_page_state(NR_FREE_CMA_PAGES));
 #endif
 
+
+
 	hugetlb_report_meminfo(m);
 
 	arch_report_meminfo(m);

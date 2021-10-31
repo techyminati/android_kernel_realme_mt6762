@@ -132,3 +132,7 @@ obj-y				+= exofs/ # Multiple modules
 obj-$(CONFIG_CEPH_FS)		+= ceph/
 obj-$(CONFIG_PSTORE)		+= pstore/
 obj-$(CONFIG_EFIVAR_FS)		+= efivarfs/
+#ifdef ODM_HQ_EDIT
+#Wenchao.Du@ODM_HQ.BSP.Storage.FS, 2019/01/09, config exFAT&NTFS filesystem
+obj-$(CONFIG_EXFAT_FS)		+= exfat/
+#endif

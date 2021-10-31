@@ -631,6 +631,24 @@ void do_coredump(const siginfo_t *siginfo)
 	if (!__get_dumpable(cprm.mm_flags))
 		goto fail;
 
+#if defined(VENDOR_EDIT)
+	//Zhibin.Wu@PSW.AD.Stability.Crash.1656573, 2018/11/27, Add for critical svc coredump
+	//you can check current->thread_leader->comm , current_uid and more.
+	//demo only allow system_server, surfaceflinger, com.oppo.camera,com.coloros.video and other system process in user build.
+#ifdef CONFIG_OPPO_SPECIAL_BUILD
+//Deliang.Peng@PSW.MM.Stability.Log, 2018/12/05, Add for app coredump
+#ifndef CONFIG_MT_ENG_BUILD
+	if (strncmp(current->group_leader->comm, "system_server", 16) &&
+		strncmp(current->group_leader->comm, "surfaceflinger", 16) &&
+		strncmp(current->group_leader->comm, "com.oppo.camera", 17) &&
+		strncmp(current->group_leader->comm, "com.coloros.video", 19) &&
+		(from_kuid_munged(current_user_ns(), current_uid()) >= 10000) ) {
+		goto fail;
+	}
+#endif
+#endif /*CONFIG_OPPO_SPECIAL_BUILD*/
+#endif /*VENDOR_EDIT*/
+
 	cred = prepare_creds();
 	if (!cred)
 		goto fail;
