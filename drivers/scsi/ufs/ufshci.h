@@ -78,6 +78,7 @@ enum {
 	/* MTK PATCH */
 	UFSHCI_REG_SPACE_SIZE			= 0xA0,
 	UFS_REG_CRYPTO_CAPABILITY		= 0x100,
+	REG_UFS_ADDR_XOUFS_ST			= 0x144,
 
 	/* MTK PATCH: vendor-specific registers */
 	REG_UFS_MTK_START = 0x2100, /* the start offset of MTK registers */
@@ -186,6 +187,7 @@ enum {
 /* UECPA - Host UIC Error Code PHY Adapter Layer 38h */
 #define UIC_PHY_ADAPTER_LAYER_ERROR			UFS_BIT(31)
 #define UIC_PHY_ADAPTER_LAYER_ERROR_CODE_MASK		0x1F
+#define UIC_PHY_ADAPTER_LAYER_LANE_ERR_MASK		0xF
 
 /* UECDL - Host UIC Error Code Data Link Layer 3Ch */
 #define UIC_DATA_LINK_LAYER_ERROR		UFS_BIT(31)
