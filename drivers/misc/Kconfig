@@ -817,8 +817,6 @@ source "drivers/misc/echo/Kconfig"
 source "drivers/misc/cxl/Kconfig"
 source "drivers/misc/mediatek/Kconfig"
 
-source "drivers/misc/oppo_motor/Kconfig"
-
 #ifdef ODM_HQ_EDIT
 #duwenchao@ODM_HQ.BSP.System.devinfo, 2018/12/07 add devinfo fs.
 source "drivers/misc/hqdevinfo/Kconfig"
