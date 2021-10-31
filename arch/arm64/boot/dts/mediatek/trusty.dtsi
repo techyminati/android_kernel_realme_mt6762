@@ -35,5 +35,15 @@
 			compatible = "mediatek,trusty-mtee-v1";
 		};
 
+		gz_log {
+			compatible = "android,trusty-gz-log-v1";
+		};
+
+#ifdef CONFIG_MTK_ENABLE_GENIEZONE
+		tz_sys {
+			compatible = "mediatek,tz_system";
+		};
+#endif
+
 	};
 };
