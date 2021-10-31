@@ -18,6 +18,12 @@
  * to use off stack temporal storage
  */
 
+#ifdef CONFIG_DEBUG_PAGE_OWNER_DEFAULT_OFF
+static bool page_owner_disabled = true;
+#else
+static bool page_owner_disabled;
+#endif
+
 #define PAGE_OWNER_STACK_DEPTH (8)
 
 #ifdef CONFIG_PAGE_OWNER_SLIM
@@ -199,7 +205,6 @@ struct page_owner {
 	depot_stack_handle_t handle;
 };
 
-static bool page_owner_disabled = true;
 DEFINE_STATIC_KEY_FALSE(page_owner_inited);
 
 static depot_stack_handle_t dummy_handle;
