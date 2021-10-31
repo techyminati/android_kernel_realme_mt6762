@@ -226,11 +226,6 @@ source "drivers/input/serio/Kconfig"
 
 source "drivers/input/gameport/Kconfig"
 
-#ifdef VENDOR_EDIT
-#Long.Liu@BSP.Fingerprint.Basic, 2018/11/19 Add for fingerprint compatibility
-source "drivers/input/oppo_fp_drivers/Kconfig"
-#endif /*VENDOR_EDIT*/
-
 endmenu
 
 endmenu
