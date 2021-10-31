@@ -106,12 +106,14 @@ int mtk_adsp_genpool_allocate_memory(unsigned char **vaddr,
 int mtk_adsp_genpool_free_memory(unsigned char **vaddr,
 				 size_t *size, int id);
 int afe_get_pcmdir(int dir, struct audio_hw_buffer buf);
+int get_dsp_task_attr(int dsp_id, int task_attr);
 
 int audio_set_dsp_afe(struct mtk_base_afe *afe);
 struct mtk_base_afe *get_afe_base(void);
 
-bool is_adsp_core_ready(void);
-bool is_adsp_feature_registered(void);
 int mtk_dsp_register_feature(int id);
 int mtk_dsp_deregister_feature(int id);
+
+int mtk_audio_register_notify(void);
+
 #endif

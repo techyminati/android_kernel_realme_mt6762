@@ -67,6 +67,11 @@ static unsigned long long bt_tx_timestamp;
 static unsigned long long bt_rx_bufdata_equivalent_time;
 static unsigned long long bt_tx_bufdata_equivalent_time;
 
+void *BT_REG_ADDRESS;
+#define BT_REG_BASE (0x18007000L)
+#define BT_DUMP_RG_1 0xc
+#define BT_DUMP_RG_2 0x10
+static unsigned int bt_dump_cnt;
 /*==========================================================
  *     BT SCO Internal Function
  *===========================================================
@@ -123,10 +128,18 @@ void AudDrv_BTCVSD_ReadFromBT(enum bt_sco_packet_len uLen,
 	kal_uint8 *pPacketBuf;
 	unsigned long flags;
 	unsigned long connsys_addr_rx, ap_addr_rx;
+	bool new_ap_addr_rx = true;
 
 	connsys_addr_rx = *bt_hw_REG_PACKET_R;
 	ap_addr_rx = (unsigned long)BTSYS_SRAM_BANK2_BASE_ADDRESS +
 		     (connsys_addr_rx & 0xFFFF);
+
+	if (connsys_addr_rx == 0xdeadfeed) {
+		/* bt return 0xdeadfeed if read register during bt sleep */
+		pr_warn("%s(), connsys_addr_rx == 0xdeadfeed)", __func__);
+		return;
+	}
+
 #if defined(LOGBT_ON)
 	pr_debug(
 		"%s connsys_addr_rx=0x%lx,ap_addr_rx=0x%lx btsco.pRX->iPacket_w=%d\n",
@@ -146,6 +159,25 @@ void AudDrv_BTCVSD_ReadFromBT(enum bt_sco_packet_len uLen,
 		"%s AudDrv_BTCVSD_DataTransfer DONE!!!,uControl=0x%x,uLen=%d\n",
 		__func__, uControl, uLen);
 #endif
+
+	/* store bt rx buffer sram info */
+	btsco.pRX->buffer_info.packet_length = uPacketLength;
+	btsco.pRX->buffer_info.packet_number = uPacketNumber;
+	for (i = 0; i < btsco.pRX->buffer_info.num_valid_addr; i++) {
+		if (btsco.pRX->buffer_info.addr_to_clean[i] == ap_addr_rx) {
+			new_ap_addr_rx = false;
+			break;
+		}
+	}
+	if (new_ap_addr_rx && btsco.pRX->buffer_info.num_valid_addr < 19) {
+		btsco.pRX->buffer_info.num_valid_addr++;
+		pr_debug("%s(), new ap_addr_rx = 0x%lx, num_valid_addr %d\n",
+			__func__, ap_addr_rx,
+			btsco.pRX->buffer_info.num_valid_addr);
+		btsco.pRX->buffer_info
+			.addr_to_clean[btsco.pRX->buffer_info.num_valid_addr -
+				       1] = ap_addr_rx;
+	}
 
 	spin_lock_irqsave(&auddrv_btcvsd_rx_lock, flags);
 	for (i = 0; i < uBlockSize; i++) {
@@ -214,6 +246,16 @@ void AudDrv_BTCVSD_WriteToBT(enum bt_sco_packet_len uLen,
 		return;
 	}
 
+	connsys_addr_tx = *bt_hw_REG_PACKET_W;
+	ap_addr_tx = (unsigned long)BTSYS_SRAM_BANK2_BASE_ADDRESS +
+		     (connsys_addr_tx & 0xFFFF);
+
+	if (connsys_addr_tx == 0xdeadfeed) {
+		/* bt return 0xdeadfeed if read register during bt sleep */
+		pr_warn("%s(), connsys_addr_tx == 0xdeadfeed\n", __func__);
+		return;
+	}
+
 #if defined(LOGBT_ON)
 	pr_debug("%s(+) btsco.pTX->iPacket_r=%d\n", __func__,
 		 btsco.pTX->iPacket_r);
@@ -231,9 +273,6 @@ void AudDrv_BTCVSD_WriteToBT(enum bt_sco_packet_len uLen,
 	}
 	spin_unlock_irqrestore(&auddrv_btcvsd_tx_lock, flags);
 
-	connsys_addr_tx = *bt_hw_REG_PACKET_W;
-	ap_addr_tx = (unsigned long)BTSYS_SRAM_BANK2_BASE_ADDRESS +
-		     (connsys_addr_tx & 0xFFFF);
 #if defined(LOGBT_ON)
 	pr_debug("%s connsys_addr_tx=0x%lx,ap_addr_tx=0x%lx\n", __func__,
 		 connsys_addr_tx, ap_addr_tx);
@@ -256,13 +295,15 @@ void AudDrv_BTCVSD_WriteToBT(enum bt_sco_packet_len uLen,
 		}
 	}
 	if (new_ap_addr_tx) {
+		spin_lock_irqsave(&auddrv_btcvsd_tx_lock, flags);
 		btsco.pTX->buffer_info.num_valid_addr++;
-		pr_debug("%s(), new ap_addr_tx = 0x%lx, num_valid_addr %d\n",
-			__func__, ap_addr_tx,
-			btsco.pTX->buffer_info.num_valid_addr);
 		btsco.pTX->buffer_info
 			.addr_to_clean[btsco.pTX->buffer_info.num_valid_addr -
 				       1] = ap_addr_tx;
+		spin_unlock_irqrestore(&auddrv_btcvsd_tx_lock, flags);
+		pr_debug("%s(), new ap_addr_tx = 0x%lx, num_valid_addr %d\n",
+			__func__, ap_addr_tx,
+			btsco.pTX->buffer_info.num_valid_addr);
 	}
 
 	if (btsco.pTX->mute)
@@ -418,6 +459,17 @@ int AudDrv_BTCVSD_IRQ_handler(void)
 	pr_debug("+%s, irq=%d\n", __func__, btcvsd_irq_number);
 #endif
 
+	if (bt_dump_cnt % 45 == 0) {
+		long address = (long)((char *)BT_REG_ADDRESS + BT_DUMP_RG_1);
+		unsigned int *value = (unsigned int *)(address);
+		long address2 = (long)((char *)BT_REG_ADDRESS + BT_DUMP_RG_2);
+		unsigned int *value2 = (unsigned int *)(address2);
+
+		pr_debug("%s(), 0xc = 0x%x, 0x10 = 0x%x",
+			 __func__, *value, *value2);
+	}
+	bt_dump_cnt++;
+
 	if ((btsco.uRXState != BT_SCO_RXSTATE_RUNNING &&
 	     btsco.uRXState != BT_SCO_RXSTATE_ENDING) &&
 	    (btsco.uTXState != BT_SCO_TXSTATE_RUNNING &&
@@ -565,8 +617,9 @@ int AudDrv_BTCVSD_IRQ_handler(void)
 
 		if (btsco.pTX) {
 			tx_timeout = false;
-			if (btsco.uTXState == BT_SCO_TXSTATE_RUNNING ||
-			    btsco.uTXState == BT_SCO_TXSTATE_ENDING) {
+			if ((btsco.uTXState == BT_SCO_TXSTATE_RUNNING ||
+			    btsco.uTXState == BT_SCO_TXSTATE_ENDING) &&
+			    btsco.pTX->trigger_start) {
 #if defined(LOGBT_ON)
 				pr_debug(
 					"%s fUnderflow=%d, iw=%d, ir=%d, TX=%d\n",
@@ -639,6 +692,8 @@ bool Register_BTCVSD_Irq(void *dev, unsigned int irq_number)
 
 	if (ret)
 		pr_warn("%s fail!!! irq_number=%d\n", __func__, irq_number);
+
+	BT_REG_ADDRESS = ioremap_nocache(BT_REG_BASE, 0x1000);
 
 	return ret;
 }
@@ -1230,6 +1285,11 @@ void btcvsd_rx_reset_timeout(void)
 	rx_timeout = false;
 }
 
+bool btcvsd_tx_irq_received(void)
+{
+	return writeToBT_cnt;
+}
+
 bool btcvsd_tx_timeout(void)
 {
 	return tx_timeout;
@@ -1298,10 +1358,9 @@ enum BT_SCO_BAND get_btcvsd_band(void)
 void btcvsd_tx_clean_buffer(void)
 {
 	unsigned int i;
+	unsigned int num_valid_addr;
+	unsigned long flags;
 	enum BT_SCO_BAND band = get_btcvsd_band();
-
-	pr_debug("%s(), band %d, num_valid_addr %u\n", __func__, band,
-		 btsco.pTX->buffer_info.num_valid_addr);
 
 	if (!btsco.pTX) {
 		pr_warn("%s(), btsco.pTX == NULL\n", __func__);
@@ -1315,7 +1374,13 @@ void btcvsd_tx_clean_buffer(void)
 		memset(btsco.pTX->TempPacketBuf, 65, BT_SCO_PACKET_180);
 
 	/* write mute data to bt tx sram buffer */
-	for (i = 0; i < btsco.pTX->buffer_info.num_valid_addr; i++) {
+	spin_lock_irqsave(&auddrv_btcvsd_tx_lock, flags);
+	num_valid_addr = btsco.pTX->buffer_info.num_valid_addr;
+
+	pr_debug("%s(), band %d, num_valid_addr %u\n",
+		 __func__, band, num_valid_addr);
+
+	for (i = 0; i < num_valid_addr; i++) {
 		kal_uint8 *pDst;
 
 		pr_debug("%s(), clean addr 0x%lx\n", __func__,
@@ -1328,4 +1393,5 @@ void btcvsd_tx_clean_buffer(void)
 			btsco.pTX->buffer_info.packet_length,
 			btsco.pTX->buffer_info.packet_number, btsco.uTXState);
 	}
+	spin_unlock_irqrestore(&auddrv_btcvsd_tx_lock, flags);
 }

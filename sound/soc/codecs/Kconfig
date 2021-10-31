@@ -1119,4 +1119,22 @@ config SND_SOC_RT5509
 	depends on I2C
 	select RT_REGMAP
 
+#ifdef VENDOR_EDIT
+#Yongzhi.Zhang@PSW.MM.AudioDriver.Machine, 2018/11/06, add TFA9890 ALSA driver
+config SND_SOC_ALSACODEC_TFA9890
+	bool "Use TFA9890 As ALSACODEC"
+	default n
+
+config SND_SOC_ALSACODEC_AK4376
+	bool "Use AK4376 As ALSACODEC"
+	default n
+
+# Yongzhi.Zhang@PSW.MM.AudioDriver.Machine, 2018/11/14, add dbmdx
+config SND_SOC_DBMDX
+	bool "Use DBMDX As Sound Card"
+	default n
+
+source sound/soc/codecs/dbmdx/Kconfig
+#endif /* VENDOR_EDIT */
+
 endmenu

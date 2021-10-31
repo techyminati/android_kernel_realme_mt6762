@@ -225,13 +225,23 @@ config MTK_AUDIO_TUNNELING_SUPPORT
 	  The decoding process is done in DSP.
 	  Select Y to enable MTK_AUDIO_TUNNELING_SUPPORT for DSP playback.
 
-config MTK_AUDIO_SCP_SPKPROTECT_SUPPORT
-	bool "speaker protection through dsp"
+config SND_SOC_MTK_SCP_SMARTPA
+	bool "Smart Power Amplifier in Sensor Hub Processor"
 	help
-	  Only enable this when we have DSP.
-	  This makes speaker protection processing from dsp side.
-	  The process is done in DSP.
-	  Select Y to enable CONFIG_MTK_AUDIO_SCP_SPKPROTECT_SUPPORT for DSP playback.
+	  SmartPA(Smart Power Amplifie) provides speaker thermal
+	  and excursion protection. This configuration makes
+	  speaker protection processing in SCP(Sensor Hub Processor).
+	  Select Y to enable CONFIG_SND_SOC_MTK_SCP_SMARTPA for
+	  speaker protection in SCP.
+
+config MTK_VOW_BARGE_IN_SUPPORT
+	bool "Support VOW barge-in"
+	help
+	  Only enable this when we support VOW and barge-in.
+	  This improves the hot word recognition accuracy by
+	  applying echo cancellation to remove speaker output signal.
+	  Select Y to enable CONFIG_MTK_VOW_BARGE_IN_SUPPORT for
+	  barge-in feature.
 
 config SND_SOC_MTK_AUDIO_DSP
 	bool "ASoC support for Mediatek audiodsp chip"
@@ -241,3 +251,13 @@ config SND_SOC_MTK_AUDIO_DSP
 	  that can be used with other platforms
 	  Select Y if you have such device.
 	  If unsure select "N".
+
+#ifdef VENDOR_EDIT
+#Yongzhi.Zhang@PSW.MM.AudioDriver.feature.1209435, 2019/01/07, add for KTV
+config OPPO_KTV_DEV
+    bool "KTV feature"
+	default n
+	help
+	    This will enable KTV feature
+#endif /*VENDOR_EDIT*/
+

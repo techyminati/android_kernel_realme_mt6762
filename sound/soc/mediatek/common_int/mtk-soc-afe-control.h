@@ -66,6 +66,26 @@
 #define MASK_ALL (0xFFFFFFFF)
 #define AFE_MASK_ALL (0xffffffff)
 
+#ifdef VENDOR_EDIT
+/* Yongzhi.Zhang@PSW.MM.AudioDriver.feature.1209435, 2019/01/07,
+ * add for KTV */
+#ifdef CONFIG_OPPO_KTV_DEV
+#define KTV_DATA_UNIT_SIZE 3840
+
+extern char ktv_dl_data_unit[KTV_DATA_UNIT_SIZE];
+extern spinlock_t ktv_dl_data_lock;
+extern spinlock_t ktv_dl_ctrl_lock;
+
+extern int write_access;
+extern int dl_init_done;
+extern int dl_drop_size;
+extern struct afe_block_t user_dl_block;
+
+void auddrv_dl1_write_init(void);
+void auddrv_dl1_write_handler(kal_uint32 bytes);
+#endif /* CONFIG_OPPO_KTV_DEV */
+#endif /* VENDOR_EDIT */
+
 bool InitAfeControl(struct device *pdev);
 bool ResetAfeControl(void);
 bool Register_Aud_Irq(void *dev, unsigned int afe_irq_number);
@@ -125,17 +145,15 @@ bool set_i2s_dac_out_source(unsigned int aud_block);
 
 int get_dai_rate(enum soc_aud_digital_block digitalBlock);
 
-bool SetHwDigitalGainMode(enum soc_aud_digital_block AudBlock,
-			  unsigned int SampleRate, unsigned int SamplePerStep);
-bool SetHwDigitalGainEnable(enum soc_aud_digital_block AudBlock, bool Enable);
-bool SetHwDigitalGain(enum soc_aud_digital_block AudBlock, unsigned int Gain);
-bool set_chip_hw_digital_gain_mode(enum soc_aud_digital_block aud_block,
+bool SetHwDigitalGainMode(unsigned int GainType, unsigned int SampleRate,
+			  unsigned int SamplePerStep);
+bool SetHwDigitalGainEnable(int GainType, bool Enable);
+bool SetHwDigitalGain(unsigned int Gain, int GainType);
+bool set_chip_hw_digital_gain_mode(unsigned int gain_type,
 				   unsigned int sample_rate,
 				   unsigned int sample_per_step);
-bool set_chip_hw_digital_gain_enable(enum soc_aud_digital_block aud_block,
-				     bool enable);
-bool set_chip_hw_digital_gain(enum soc_aud_digital_block aud_block,
-			      unsigned int gain);
+bool set_chip_hw_digital_gain_enable(int gain_type, bool enable);
+bool set_chip_hw_digital_gain(unsigned int gain, int gain_type);
 
 bool EnableSineGen(unsigned int connection, bool direction, bool Enable);
 bool SetSineGenSampleRate(unsigned int SampleRate);

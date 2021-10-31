@@ -5,19 +5,19 @@
 
 #include <sound/soc.h>
 #include <linux/device.h>
+#include <linux/notifier.h>
 
 /* ipi message related*/
 #include <audio_ipi_dma.h>
+#include <audio_ipi_platform.h>
 #include <audio_messenger_ipi.h>
 #include <audio_task_manager.h>
 #include <audio_task.h>
 #include <mtk-base-afe.h>
 
-#if defined(CONFIG_SND_SOC_MTK_AUDIO_DSP)
 #include <mtk-dsp-mem-control.h>
 #include <mtk-base-dsp.h>
 #include <mtk-dsp-common.h>
-#endif
 
 #ifdef CONFIG_MTK_AUDIODSP_SUPPORT
 #include <adsp_helper.h>
@@ -95,27 +95,22 @@ int mtk_scp_ipi_send(int task_scene, int data_type, int ack_type,
 {
 	struct ipi_msg_t ipi_msg;
 	int send_result = 0;
-	int retry_count = 20; // 5 x 20 = 100ms
-
-	/* pr_warn("%s(), scp_ipi send payload = %p\n", __func__, payload); */
 
 	memset((void *)&ipi_msg, 0, sizeof(struct ipi_msg_t));
 
-	do {
-		send_result = audio_send_ipi_msg(
-			&ipi_msg, task_scene,
-			AUDIO_IPI_LAYER_TO_DSP, data_type,
-			ack_type, msg_id, param1, param2,
-			(char *)payload);
-
-		if (send_result != 0)
-			pr_warn("%s(), scp_ipi send retry\n", __func__);
-	} while (send_result != 0 && retry_count);
-
-	if (send_result) {
-		pr_info("%s(), scp_ipi send fail\n", __func__);
-		AUD_ASSERT(false);
+	if (is_adsp_ready(ADSP_A_ID) != 1) {
+		pr_info("%s(), is_adsp_ready send false\n", __func__);
+		return send_result;
 	}
+
+	send_result = audio_send_ipi_msg(
+		&ipi_msg, task_scene,
+		AUDIO_IPI_LAYER_TO_DSP, data_type,
+		ack_type, msg_id, param1, param2,
+		(char *)payload);
+
+	if (send_result)
+		pr_info("%s(), scp_ipi send fail\n", __func__);
 
 	return send_result;
 }
@@ -136,6 +131,10 @@ int get_dspscene_by_dspdaiid(int id)
 		return TASK_SCENE_AUDPLAYBACK;
 	case AUDIO_TASK_CAPTURE_UL1_ID:
 		return TASK_SCENE_CAPTURE_UL1;
+	case AUDIO_TASK_A2DP_ID:
+		return TASK_SCENE_A2DP;
+	case AUDIO_TASK_DATAPROVIDER_ID:
+		return TASK_SCENE_DATAPROVIDER;
 	default:
 		pr_warn("%s() err\n", __func__);
 		return -1;
@@ -158,6 +157,10 @@ int get_dspdaiid_by_dspscene(int dspscene)
 		return AUDIO_TASK_PLAYBACK_ID;
 	case TASK_SCENE_CAPTURE_UL1:
 		return AUDIO_TASK_CAPTURE_UL1_ID;
+	case TASK_SCENE_A2DP:
+		return AUDIO_TASK_A2DP_ID;
+	case TASK_SCENE_DATAPROVIDER:
+		return AUDIO_TASK_DATAPROVIDER_ID;
 	default:
 		pr_warn("%s() err\n", __func__);
 		return -1;
@@ -168,9 +171,6 @@ int get_dspdaiid_by_dspscene(int dspscene)
 /* todo:: refine for check mechanism.*/
 int get_audio_memery_type(struct snd_pcm_substream *substream)
 {
-	pr_debug("%s addr = 0x%llx\n", __func__,
-		(unsigned long long)substream->runtime->dma_addr);
-
 	if (substream->runtime->dma_addr < 0x20000000)
 		return MEMORY_AUDIO_SRAM;
 	else
@@ -204,6 +204,11 @@ int afe_get_pcmdir(int dir, struct audio_hw_buffer buf)
 	return ret;
 }
 
+int get_dsp_task_attr(int dsp_id, int task_attr)
+{
+	return get_task_attr(dsp_id, task_attr);
+}
+
 /* function warp playback buffer information send to dsp */
 int afe_pcm_ipi_to_dsp(int command, struct snd_pcm_substream *substream,
 		       struct snd_pcm_hw_params *params,
@@ -217,6 +222,12 @@ int afe_pcm_ipi_to_dsp(int command, struct snd_pcm_substream *substream,
 	struct mtk_base_afe_memif *memif = &afe->memif[dai->id];
 
 	task_id = get_taskid_by_afe_daiid(dai->id);
+
+	if (get_task_attr(task_id, ADSP_TASK_ATTR_RUMTIME) <= 0 ||
+	    get_task_attr(task_id, ADSP_TASK_ATTR_DEFAULT) <= 0) {
+		pr_info("%s task_id[%d] disable", __func__, task_id);
+		return -1;
+	}
 
 	if (task_id < 0) {
 		pr_debug("%s() not support\n", __func__);
@@ -329,24 +340,6 @@ int afe_pcm_ipi_to_dsp(int command, struct snd_pcm_substream *substream,
 	return ret;
 }
 
-bool is_adsp_core_ready(void)
-{
-#ifdef CONFIG_MTK_AUDIODSP_SUPPORT
-	return is_adsp_ready(ADSP_A_ID);
-#else
-	return false;
-#endif
-}
-
-bool is_adsp_feature_registered(void)
-{
-#ifdef CONFIG_MTK_AUDIODSP_SUPPORT
-	return adsp_feature_is_active();
-#else
-	return false;
-#endif
-}
-
 #ifdef CONFIG_MTK_AUDIODSP_SUPPORT
 int mtk_dsp_register_feature(int id)
 {
@@ -377,4 +370,38 @@ int mtk_dsp_deregister_feature(int id)
 	return ret;
 }
 #endif
+
+#ifdef CFG_RECOVERY_SUPPORT
+static int mtk_audio_dsp_event_receive(
+	struct notifier_block *this,
+	unsigned long event,
+	void *ptr)
+{
+	switch (event) {
+	case ADSP_EVENT_STOP:
+		break;
+	case ADSP_EVENT_READY:
+		mtk_reinit_adsp_audio_share_mem();
+		break;
+	default:
+		pr_info("event %lu err", event);
+	}
+	return 0;
+}
+
+static struct notifier_block mtk_audio_dsp_notifier = {
+	.notifier_call = mtk_audio_dsp_event_receive,
+	.priority = AUDIO_PLAYBACK_FEATURE_PRI,
+};
+#endif /* end of CFG_RECOVERY_SUPPORT */
+
+int mtk_audio_register_notify(void)
+{
+#ifdef CFG_RECOVERY_SUPPORT
+	adsp_A_register_notify(&mtk_audio_dsp_notifier);
+#endif
+	return 0;
+}
+
+
 

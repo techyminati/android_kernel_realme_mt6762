@@ -16,6 +16,11 @@
 /* MT6359_DCXO_CW11 */
 #define RG_XO_VOW_EN_SFT 9
 
+/* LDO_VAUD18_CON0 */
+#define RG_LDO_VAUD18_EN_SFT                        0
+#define RG_LDO_VAUD18_EN_MASK                       0x1
+#define RG_LDO_VAUD18_EN_MASK_SFT                   (0x1 << 0)
+
 /* AUD_TOP_CKPDN_CON0 */
 #define RG_VOW13M_CK_PDN_SFT                        13
 #define RG_VOW13M_CK_PDN_MASK                       0x1
@@ -2763,6 +2768,7 @@ struct mt6359_codec_ops {
 	int (*enable_dc_compensation)(bool enable);
 	int (*set_lch_dc_compensation)(int value);
 	int (*set_rch_dc_compensation)(int value);
+	int (*adda_dl_gain_control)(bool mute);
 };
 
 int mt6359_set_codec_ops(struct snd_soc_component *cmpnt,

@@ -494,7 +494,10 @@ int AudDrv_GPIO_EXTAMP_Select(int bEnable, int mode)
 		else if (mode == 2)
 			extamp_mode = 2;
 		else
+#ifdef ODM_HQ_EDIT
+//chenxinjiang@ODM_HQ.MM.AudioDriver.Hal, 2018/12/05, modify for setting ext pa mode to 3
 			extamp_mode = 3; /* default mode is 3 */
+#endif /* ODM_HQ_EDIT */
 
 		if (aud_gpios[GPIO_EXTAMP_HIGH].gpio_prepare) {
 			for (i = 0; i < extamp_mode; i++) {
