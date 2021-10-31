@@ -70,6 +70,7 @@ enum gauge_info {
 	GAUGE_MONITER_PLCHG_STATUS,
 	GAUGE_BAT_PLUG_STATUS,
 	GAUGE_IS_NVRAM_FAIL_MODE,
+	GAUGE_MONITOR_SOFF_VALIDTIME,
 	GAUGE_CON0_SOC,
 	GAUGE_SHUTDOWN_CAR,
 	GAUGE_INFO_MAX
@@ -220,7 +221,13 @@ struct gauge_ops {
 	int (*gauge_get_info)(
 		struct gauge_device *gauge_dev,
 		enum gauge_info ginfo, int *value);
-
+#ifdef ODM_HQ_EDIT
+/*Hanxing.Duan@ODM.HQ.BSP.CHG.Gauge 2019.02.25 add set monitci soc for rtc*/
+	int (*gauge_set_rtc_monitic_soc)(
+		struct gauge_device *gauge_dev, int ui_soc);
+	int (*gauge_get_rtc_monitic_soc)(
+		struct gauge_device *gauge_dev, int *ui_soc);
+#endif /*ODM_HQ_EDIT*/
 };
 
 struct gauge_device {
@@ -336,6 +343,14 @@ extern int gauge_dev_set_info(
 	struct gauge_device *gauge_dev, enum gauge_info ginfo, int value);
 extern int gauge_dev_get_info(
 	struct gauge_device *gauge_dev, enum gauge_info ginfo, int *value);
+
+#ifdef ODM_HQ_EDIT
+/*Hanxing.Duan@ODM.HQ.BSP.CHG.Gauge 2019.02.25 add set monitci soc for rtc*/
+extern int gauge_dev_set_monitic_rtc_ui_soc(
+	struct gauge_device *gauge_dev, int ui_soc);
+extern int gauge_dev_get_monitic_rtc_ui_soc(
+	struct gauge_device *gauge_dev, int *ui_soc);
+#endif /*ODM_HQ_EDIT*/
 
 #endif
 

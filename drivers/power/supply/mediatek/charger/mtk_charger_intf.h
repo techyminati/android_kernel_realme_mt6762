@@ -79,6 +79,28 @@ do {								\
 #define	CHR_PE40_POSTCC	(0x000A)
 #define CHR_PE30	(0x000B)
 
+/* charging abnormal status */
+#ifdef ODM_HQ_EDIT
+/*Hanxing.Duan@ODM.HQ.BSP.CHG.Basic 2019.01.07 add notify code*/
+#define CHG_VBUS_OV_STATUS				(1 << 1)
+#define CHG_BAT_HIG_TEMP_STATUS			(1 << 3)
+#define CHG_BAT_LOW_TEMP_STATUS			(1 << 4)
+#define CHG_BAT_ID_STATUS				(1 << 5)
+#define CHG_BAT_OV_STATUS				(1 << 6)
+#define CHG_BAT_FULL_STATUS				(1 << 7)
+#define CHG_BAT_TIMEOUT_STATUS			(1 << 9)
+#define CHG_BAT_TEMP_HIG_FULL_STATUS	(1 << 10)
+#define CHG_BAT_TEMP_LOW_FULL_STATUS	(1 << 11)
+#else /*ODM_HQ_EDIT*/
+#define CHG_VBUS_OV_STATUS	(1 << 0)
+#define CHG_BAT_OT_STATUS	(1 << 1)
+#define CHG_OC_STATUS		(1 << 2)
+#define CHG_BAT_OV_STATUS	(1 << 3)
+#define CHG_ST_TMO_STATUS	(1 << 4)
+#define CHG_BAT_LT_STATUS	(1 << 5)
+#define CHG_TYPEC_WD_STATUS	(1 << 6)
+#endif /*ODM_HQ_EDIT*/
+
 /* charger_algorithm notify charger_dev */
 enum {
 	EVENT_EOC,
@@ -92,8 +114,29 @@ enum {
 	CHARGER_DEV_NOTIFY_EOC,
 	CHARGER_DEV_NOTIFY_RECHG,
 	CHARGER_DEV_NOTIFY_SAFETY_TIMEOUT,
+#ifdef ODM_HQ_EDIT
+/*Hanxing.Duan@ODM.HQ.BSP.CHG.Basic 2019.01.08 add for charger*/
+	CHARGER_DEV_NOTIFY_START_CHARGER,
+	CHARGER_DEV_NOTIFY_STOP_CHARGER,
+	CHARGER_DEV_NOTIFY_PLUG_OUT,
+#endif /*ODM_HQ_EDIT*/
 };
 
+#ifdef ODM_HQ_EDIT
+/* Mengchun.Zhang@ODM.HQ.BSP.CHG.Basic 2018/12/27 Adapt software jeita level */
+enum sw_jeita_state_enum {
+	BATTERY_STATUS_REMOVED = 0,                     /* <-20C   */
+	BATTERY_STATUS_LOW_TEMP,                        /* <-3C    */
+	BATTERY_STATUS_COLD_TEMP,                       /* -3C~0C  */
+	BATTERY_STATUS_LITTLE_COLD_TEMP,                /* 0C~5C   */
+	BATTERY_STATUS_COOL_TEMP,                       /* 5C~12C  */
+	BATTERY_STATUS_LITTLE_COOL_TEMP,                /* 12C~16C */
+	BATTERY_STATUS_NORMAL,                          /* 16C~45C */
+	BATTERY_STATUS_WARM_TEMP,                       /* 45C~55C */
+	BATTERY_STATUS_HIGH_TEMP,                       /* >55C    */
+	BATTERY_STATUS_INVALID
+};
+#else  /* ODM_HQ_EDIT */
 /*
  * Software JEITA
  * T0: -10 degree Celsius
@@ -110,11 +153,16 @@ enum sw_jeita_state_enum {
 	TEMP_T3_TO_T4,
 	TEMP_ABOVE_T4
 };
+#endif   /* ODM_HQ_EDIT */
 
 struct sw_jeita_data {
 	int sm;
 	int pre_sm;
 	int cv;
+#ifdef ODM_HQ_EDIT
+/* Mengchun.Zhang@ODM.HQ.BSP.CHG.Basic 2018/12/27 Add cc in software jeita data member. */
+	int cc;
+#endif  /* ODM_HQ_EDIT */
 	bool charging;
 	bool error_recovery_flag;
 };
@@ -155,12 +203,30 @@ struct charger_custom_data {
 	int pd_charger_current;
 
 	/* sw jeita */
+#ifdef ODM_HQ_EDIT
+/* Mengchun.Zhang@ODM.HQ.BSP.CHG.Basic 2018/12/27 Adapt software jeita level */
+	int jeita_temp_t5_to_t6_cc;
+	int jeita_temp_t4_to_t5_cc;
+	int jeita_temp_t3_to_t4_cc;
+	int jeita_temp_t2_to_t3_cc;
+	int jeita_temp_t1_to_t2_cc;
+	int jeita_temp_t0_to_t1_cc;
+	int jeita_temp_above_t7_cv;
+	int jeita_temp_t6_to_t7_cv;
+	int jeita_temp_t5_to_t6_cv;
+	int jeita_temp_t4_to_t5_cv;
+#else  /* ODM_HQ_EDIT */
 	int jeita_temp_above_t4_cv;
+#endif   /* ODM_HQ_EDIT */
 	int jeita_temp_t3_to_t4_cv;
 	int jeita_temp_t2_to_t3_cv;
 	int jeita_temp_t1_to_t2_cv;
 	int jeita_temp_t0_to_t1_cv;
 	int jeita_temp_below_t0_cv;
+#ifdef ODM_HQ_EDIT
+	int temp_t5_thres;
+	int temp_t5_thres_minus_x_degree;
+#endif  /* ODM_HQ_EDIT */
 	int temp_t4_thres;
 	int temp_t4_thres_minus_x_degree;
 	int temp_t3_thres;
@@ -171,7 +237,13 @@ struct charger_custom_data {
 	int temp_t1_thres_plus_x_degree;
 	int temp_t0_thres;
 	int temp_t0_thres_plus_x_degree;
+#ifdef ODM_HQ_EDIT
+/* Mengchun.Zhang@ODM.HQ.BSP.CHG.Basic 2018/12/27 Adapt software jeita level */
+	int temp_neg_3_thres;
+	int temp_neg_20_thres;
+#else  /* ODM_HQ_EDIT */
 	int temp_neg_10_thres;
+#endif  /* ODM_HQ_EDIT */
 
 	/* battery temperature protection */
 	int mtk_temperature_recharge_support;
@@ -257,6 +329,7 @@ struct charger_manager {
 
 	enum charger_type chr_type;
 	bool can_charging;
+	int cable_out_cnt;
 
 	int (*do_algorithm)(struct charger_manager *);
 	int (*plug_in)(struct charger_manager *);
@@ -272,6 +345,10 @@ struct charger_manager {
 
 	/* common info */
 	int battery_temp;
+#ifdef ODM_HQ_EDIT
+/* Jianmin.Niu@ODM.HQ.BSP.CHG.Basic 2019.2.18 Add battery PCB_version */
+	int PCB_version;
+#endif /* ODM_HQ_EDIT */
 
 	/* sw jeita */
 	bool enable_sw_jeita;
@@ -283,7 +360,12 @@ struct charger_manager {
 	bool cmd_discharging;
 	bool safety_timeout;
 	bool vbusov_stat;
-
+#ifdef ODM_HQ_EDIT
+/*Hanxing.Duan@ODM.HQ.BSP.CHG.Basic 2019.1.8 add vbus check*/
+	struct delayed_work		vbus_check;
+	struct delayed_work		vchg_work;
+	struct delayed_work		tbatt_kpof_work;
+#endif /*ODM_HQ_EDIT*/
 	/* battery warning */
 	unsigned int notify_code;
 	unsigned int notify_test_mode;
@@ -315,6 +397,9 @@ struct charger_manager {
 	/* type-C*/
 	bool enable_type_c;
 
+	/* water detection */
+	bool water_detected;
+
 	/* pd */
 	struct mtk_pdc pdc;
 
@@ -330,6 +415,7 @@ struct charger_manager {
 	struct wakeup_source charger_wakelock;
 	struct mutex charger_lock;
 	struct mutex charger_pd_lock;
+	struct mutex cable_out_lock;
 	spinlock_t slock;
 	unsigned int polling_interval;
 	bool charger_thread_timeout;

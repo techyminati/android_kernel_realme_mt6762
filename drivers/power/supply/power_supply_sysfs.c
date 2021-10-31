@@ -53,7 +53,12 @@ static ssize_t power_supply_show_property(struct device *dev,
 		"Cmd discharging"
 	};
 	static char *charge_type[] = {
+#ifdef ODM_HQ_EDIT
+/*duanhanxing@ODM.HQ.BSP.CHG.Basic 2018.12.10 modify charger type*/
+		"Not charging", "Pre charging", "Fast", "Full"
+#else /*ODM_HQ_EDIT*/
 		"Unknown", "N/A", "Trickle", "Fast"
+#endif /*ODM_HQ_EDIT*/
 	};
 	static char *health_text[] = {
 		"Unknown", "Good", "Overheat", "Dead", "Over voltage",
@@ -204,11 +209,28 @@ static struct device_attribute power_supply_attrs[] = {
 	POWER_SUPPLY_ATTR(calibrate),
 	/* Local extensions */
 	POWER_SUPPLY_ATTR(usb_hc),
-	POWER_SUPPLY_ATTR(usb_otg),
+	POWER_SUPPLY_ATTR(otg_online),
 	POWER_SUPPLY_ATTR(charge_enabled),
+#ifdef ODM_HQ_EDIT
+/*Hanxing.Duan@ODM.HQ.BSP.CHG.Basic 2018.12.04 add battery power supply file node*/
+	POWER_SUPPLY_ATTR(batt_id),
+	POWER_SUPPLY_ATTR(ship_mode),
+	POWER_SUPPLY_ATTR(authenticate),
+	POWER_SUPPLY_ATTR(batt_fcc),
+	POWER_SUPPLY_ATTR(batt_cc),
+	POWER_SUPPLY_ATTR(battery_charging_enabled),
+	POWER_SUPPLY_ATTR(call_mode),
+	POWER_SUPPLY_ATTR(charge_timeout),
+	POWER_SUPPLY_ATTR(chargerid_volt),
+	POWER_SUPPLY_ATTR(mmi_charging_enable),
+	POWER_SUPPLY_ATTR(recharge_soc),
+	POWER_SUPPLY_ATTR(input_current_limited),
+	POWER_SUPPLY_ATTR(otg_switch),
+	POWER_SUPPLY_ATTR(notify_code),
+	POWER_SUPPLY_ATTR(batt_rm),
+#endif /*ODM_HQ_EDIT*/
 	/* Local extensions of type int64_t */
 	POWER_SUPPLY_ATTR(charge_counter_ext),
-	/* Properties of type `const char *' */
 	POWER_SUPPLY_ATTR(model_name),
 	POWER_SUPPLY_ATTR(manufacturer),
 	POWER_SUPPLY_ATTR(serial_number),

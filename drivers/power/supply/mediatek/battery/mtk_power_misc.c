@@ -22,12 +22,13 @@
 
 #include <mt-plat/charger_type.h>
 #include <mt-plat/mtk_battery.h>
+#include <mach/mtk_battery_property.h>
 #else
 #include <string.h>
 #include "simulator_kernel.h"
+#include "mtk_battery_property.h"
 #endif
 #include <mtk_gauge_time_service.h>
-#include <mach/mtk_battery_property.h>
 #include "mtk_battery_internal.h"
 
 
@@ -49,7 +50,6 @@ struct shutdown_controller {
 	bool lowbatteryshutdown;
 	int batdata[AVGVBAT_ARRAY_SIZE];
 	int batidx;
-	int lbat2_h_count;
 	struct mutex lock;
 	struct notifier_block psy_nb;
 };
@@ -291,7 +291,10 @@ static int shutdown_event_handler(struct shutdown_controller *sdd)
 			if (duraction.tv_sec >= SHUTDOWN_TIME) {
 				bm_err("soc zero shutdown\n");
 				mutex_unlock(&sdd->lock);
+#ifndef ODM_HQ_EDIT
+/*Hanxing.Duan@ODM.HQ.BSP.CHG.Basic 2019.01.24 Delete dlpt shutdown*/
 				kernel_power_off();
+#endif /*ODM_HQ_EDIT*/
 				return next_waketime(polling);
 
 			}
@@ -312,7 +315,10 @@ static int shutdown_event_handler(struct shutdown_controller *sdd)
 			if (duraction.tv_sec >= SHUTDOWN_TIME) {
 				bm_err("uisoc one shutdown\n");
 				mutex_unlock(&sdd->lock);
+#ifndef ODM_HQ_EDIT
+/*Hanxing.Duan@ODM.HQ.BSP.CHG.Basic 2019.01.24 Delete dlpt shutdown*/
 				kernel_power_off();
+#endif /*ODM_HQ_EDIT*/
 				return next_waketime(polling);
 			}
 		} else {
@@ -327,7 +333,10 @@ static int shutdown_event_handler(struct shutdown_controller *sdd)
 		if (duraction.tv_sec >= SHUTDOWN_TIME) {
 			bm_err("dlpt shutdown\n");
 			mutex_unlock(&sdd->lock);
+#ifndef ODM_HQ_EDIT
+/*Hanxing.Duan@ODM.HQ.BSP.CHG.Basic 2019.01.24 Delete dlpt shutdown*/
 			kernel_power_off();
+#endif /*ODM_HQ_EDIT*/
 			return next_waketime(polling);
 		}
 	}
@@ -386,7 +395,10 @@ static int shutdown_event_handler(struct shutdown_controller *sdd)
 				if (duraction.tv_sec >= SHUTDOWN_TIME) {
 					bm_err("low bat shutdown\n");
 					mutex_unlock(&sdd->lock);
+#ifndef ODM_HQ_EDIT
+/*Hanxing.Duan@ODM.HQ.BSP.CHG.Basic 2019.01.24 Delete dlpt shutdown*/
 					kernel_power_off();
+#endif /*ODM_HQ_EDIT*/
 					return next_waketime(polling);
 				}
 			}
@@ -399,29 +411,14 @@ static int shutdown_event_handler(struct shutdown_controller *sdd)
 			polling++;
 		}
 
-		/* escape LOW_BAT_VOLT */
-		if (vbat > 3500)
-			sdd->lbat2_h_count++;
-		else
-			sdd->lbat2_h_count = 0;
-
-		if (sdd->lbat2_h_count >= 3) {
-			bm_err("escape from LOW_BAT_VOLT shutdown_condition:%d\n",
-				sdd->lbat2_h_count);
-			fg_update_sw_low_battery_check(
-				fg_cust_data.vbat2_det_voltage3 / 10);
-			sdd->lbat2_h_count = 0;
-		}
-
 		polling++;
-			bm_err("[%s][UT] V %d ui_soc %d dur %d [%d:%d:%d:%d:%d] batdata[%d] %d\n",
-				__func__,
+			bm_err("[%s][UT] V %d ui_soc %d dur %d [%d:%d:%d:%d] batdata[%d] %d\n",
+			__func__,
 			sdd->avgvbat, current_ui_soc,
 			(int)duraction.tv_sec,
 			down_to_low_bat, ui_zero_time_flag,
 			(int)sdd->pre_time[LOW_BAT_VOLT].tv_sec,
 			sdd->lowbatteryshutdown,
-			sdd->lbat2_h_count,
 			sdd->batidx, sdd->batdata[sdd->batidx]);
 
 		sdd->batidx++;
@@ -491,7 +488,10 @@ int mtk_power_misc_psy_event(
 				bm_err(
 					"battery temperature >= %d,shutdown",
 					tmp);
-				kernel_power_off();
+#ifdef ODM_HQ_EDIT
+/*Hanxing.Duan@ODM.HQ.BSP.CHG.Basic 2019.02.12 remove kernel power off in hig temp*/
+				//kernel_power_off();
+#endif /*ODM_HQ_EDIT*/
 			}
 		}
 	}

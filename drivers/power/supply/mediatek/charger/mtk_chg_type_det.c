@@ -131,7 +131,7 @@ static int mt_charger_online(struct mt_charger *mtk_chg)
 			kernel_power_off();
 		}
 	}
-#endif /* !CONFIG_TCPC_CLASS */
+#endif
 
 	return ret;
 }
@@ -199,7 +199,10 @@ static int mt_charger_set_property(struct power_supply *psy,
 
 	mtk_charger_int_handler();
 	fg_charger_in_handler();
-
+#ifdef ODM_HQ_EDIT
+/*duanhanxing@ODM/HQ/BSP/Charger 2018.11.29 add for chg sync*/
+	power_supply_changed(mtk_chg->chg_psy);
+#endif /*ODM_HQ_EDIT*/
 	power_supply_changed(mtk_chg->ac_psy);
 	power_supply_changed(mtk_chg->usb_psy);
 
@@ -228,6 +231,41 @@ static int mt_ac_get_property(struct power_supply *psy,
 
 	return 0;
 }
+#ifdef ODM_HQ_EDIT
+/*Hanxing.Duan@ODM.HQ.BSP.CHG.Basic 2018.12.20 add usb set property func*/
+extern bool otg_online;
+int otg_switch = 0;
+extern void otg_switch_mode(int);
+static int mt_usb_property_is_writeable(struct power_supply *psy,
+						 enum power_supply_property psp)
+{
+	switch (psp) {
+		case POWER_SUPPLY_PROP_OTG_SWITCH:
+		return 1;
+	default :
+		break;
+	}
+	return 0;
+}
+
+static int mt_usb_set_property(struct power_supply *psy,
+	enum power_supply_property psp, const union power_supply_propval *val)
+{
+	switch (psp) {
+	case POWER_SUPPLY_PROP_OTG_SWITCH:
+		if (otg_switch != val->intval)
+		{
+			otg_switch = val->intval;
+			otg_switch_mode(otg_switch);
+		}
+		break;
+	default:
+		return -EINVAL;
+	}
+	return 0;
+}
+
+#endif /*ODM_HQ_EDIT*/
 
 static int mt_usb_get_property(struct power_supply *psy,
 	enum power_supply_property psp, union power_supply_propval *val)
@@ -248,6 +286,20 @@ static int mt_usb_get_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_VOLTAGE_MAX:
 		val->intval = 5000000;
 		break;
+#ifdef ODM_HQ_EDIT
+/*Hanxing.Duan@ODM.HQ.BSP.Charger 2018.11.29 add OTG STATSU file node*/
+	case POWER_SUPPLY_PROP_OTG_ONLINE:
+		if (otg_online)
+			val->intval = 1;
+		else
+			val->intval = 0;
+		pr_err("otg online = %d\n",otg_online);
+		break;
+	case POWER_SUPPLY_PROP_OTG_SWITCH:
+		val->intval = otg_switch;
+		pr_err("otg switch = %d\n",val->intval);
+		break;
+#endif /*ODM_HQ_EDIT*/
 	default:
 		return -EINVAL;
 	}
@@ -267,6 +319,11 @@ static enum power_supply_property mt_usb_properties[] = {
 	POWER_SUPPLY_PROP_ONLINE,
 	POWER_SUPPLY_PROP_CURRENT_MAX,
 	POWER_SUPPLY_PROP_VOLTAGE_MAX,
+#ifdef ODM_HQ_EDIT
+/*Hanxing.Duan@ODM.HQ.BSP.Charger 2018.11.29 add OTG STATUS file node*/
+	POWER_SUPPLY_PROP_OTG_ONLINE,
+	POWER_SUPPLY_PROP_OTG_SWITCH,
+#endif /*ODM_HQ_EDIT*/
 };
 
 static int mt_charger_probe(struct platform_device *pdev)
@@ -302,6 +359,11 @@ static int mt_charger_probe(struct platform_device *pdev)
 	mt_chg->usb_desc.properties = mt_usb_properties;
 	mt_chg->usb_desc.num_properties = ARRAY_SIZE(mt_usb_properties);
 	mt_chg->usb_desc.get_property = mt_usb_get_property;
+#ifdef ODM_HQ_EDIT
+/*Hanxing.Duan@ODM.HQ.BSP.CHG.Basic 2018.12.20 add usb set property func*/
+	mt_chg->usb_desc.set_property = mt_usb_set_property;
+	mt_chg->usb_desc.property_is_writeable = mt_usb_property_is_writeable;
+#endif /*ODM_HQ_EDIT*/
 	mt_chg->usb_cfg.drv_data = mt_chg;
 
 	mt_chg->chg_psy = power_supply_register(&pdev->dev,

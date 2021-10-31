@@ -26,10 +26,22 @@ subdir-ccflags-y += -I$(srctree)/drivers/misc/mediatek/pmic/include
 subdir-ccflags-y += -I$(srctree)/drivers/misc/mediatek/typec/tcpc/inc
 subdir-ccflags-y += -I$(srctree)/drivers/power/supply/mediatek/misc/
 
+#ifdef VENDOR_EDIT /* Jianchao.Shi@BSP.CHG.Basic, 2018/11/09, sjc Modify for charging */
+#obj-y += charger_class.o mtk_switch_charging.o mtk_pdc_intf.o\
+#	 mtk_chg_type_det.o mtk_pe40_intf.o
+#else
 obj-y += charger_class.o mtk_charger.o mtk_switch_charging.o mtk_pdc_intf.o\
 	 mtk_chg_type_det.o mtk_pe40_intf.o
+#endif
 
 obj-$(CONFIG_MTK_DUAL_CHARGER_SUPPORT) += mtk_dual_switch_charging.o
 obj-$(CONFIG_MTK_PUMP_EXPRESS_PLUS_SUPPORT) += mtk_pe_intf.o
 obj-$(CONFIG_MTK_PUMP_EXPRESS_PLUS_20_SUPPORT) += mtk_pe20_intf.o
 obj-$(CONFIG_CHARGER_RT9465) += rt9465.o
+#ifdef ODM_HQ_EDIT
+#Hanxing.Duan@ODM.HQ.BSP.Charger 2018.11.29 add BQ25601 charger ic driver
+ifeq (yes,$(strip $(HQ_COMPILE_FACTORY_VERSION)))
+  ccflags-y += -DHQ_COMPILE_FACTORY_VERSION
+endif
+obj-$(CONFIG_BQ2560X_CHARGER) += bq2560x_charger.o
+#endif #ODM_HQ_EDIT

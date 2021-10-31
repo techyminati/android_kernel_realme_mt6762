@@ -33,6 +33,11 @@
 #define FGD_NL_MAGIC 2015060303
 #define FGD_NL_MSG_MAX_LEN 9200
 
+#ifdef ODM_HQ_EDIT
+/* Mengchun.Zhang@ODM.HQ.BSP.CHG.Basic 2019/01/08 Define seconds in 10 minutes*/
+#define TEN_MINUTES 600      /* 10 minutes = 60 * 10 second */
+#endif  /* ODM_HQ_EDIT */
+
 #define UNIT_TRANS_10	10
 
 #define UNIT_TRANS_100	100
@@ -44,7 +49,12 @@
 /* ============================================================ */
 /* power misc related */
 /* ============================================================ */
+#ifdef ODM_HQ_EDIT
+/*Hanxing.Duan@ODM.HQ.BSP.CHG.Basic 2019.1.15 modify pmic shutdown voltage 3300*/
+#define BAT_VOLTAGE_LOW_BOUND 3300
+#else /*ODM_HQ_EDIT*/
 #define BAT_VOLTAGE_LOW_BOUND 3400
+#endif /*ODM_HQ_EDIT*/
 #define BAT_VOLTAGE_HIGH_BOUND 3450
 #define LOW_TMP_BAT_VOLTAGE_LOW_BOUND 3200
 #define SHUTDOWN_TIME 40
@@ -221,6 +231,7 @@ enum Fg_kernel_cmds {
 	FG_KERNEL_CMD_UISOC_UPDATE_TYPE,
 	FG_KERNEL_CMD_CHANG_LOGLEVEL,
 	FG_KERNEL_CMD_REQ_ALGO_DATA,
+	FG_KERNEL_CMD_RESET_AGING_FACTOR,
 
 	FG_KERNEL_CMD_FROM_USER_NUMBER
 
@@ -298,6 +309,7 @@ enum daemon_cmd_int_data {
 	FG_GET_CURR_1 = 3,
 	FG_GET_CURR_2 = 4,
 	FG_GET_REFRESH = 5,
+	FG_GET_IS_AGING_RESET = 6,
 	FG_GET_MAX,
 	FG_SET_ANCHOR = 999,
 	FG_SET_SOC = FG_SET_ANCHOR + 1,
@@ -314,6 +326,7 @@ enum daemon_cmd_int_data {
 	FG_SET_OCV_mah = FG_SET_ANCHOR + 12,
 	FG_SET_OCV_Vtemp = FG_SET_ANCHOR + 13,
 	FG_SET_OCV_SOC = FG_SET_ANCHOR + 14,
+	FG_SET_CON0_SOFF_VALID = FG_SET_ANCHOR + 15,
 	FG_SET_DATA_MAX,
 };
 
@@ -495,6 +508,7 @@ struct fuel_gauge_custom_data {
 	int c_soc;
 	int v_soc;
 	int ui_old_soc;
+	int dlpt_ui_remap_en;
 
 	int aging_factor_min;
 	int aging_factor_diff;
@@ -579,6 +593,13 @@ struct battery_data {
 	/* Add for Battery Service */
 	int BAT_batt_vol;
 	int BAT_batt_temp;
+#ifdef ODM_HQ_EDIT
+/*duanhanxing@ODM.HQ.BSP.CHG/Basic 2018.12.10 add power supply file node*/
+	int BAT_call_mode;
+	int BAT_battery_charging_enabled;
+	int BAT_mmi_charging_enable;
+	struct delayed_work		uisoc_work;
+#endif /*ODM_HQ_EDIT*/
 };
 
 struct BAT_EC_Struct {
@@ -625,9 +646,10 @@ struct simulator_log {
 
 	int phone_state;
 
+	int nafg_zcv;
+
 	/* initial */
 	int fg_reset;
-
 	int car_diff;
 
 
@@ -700,6 +722,10 @@ struct mtk_battery {
 
 /*battery plug out*/
 	bool disable_plug_int;
+/* hwocv swocv */
+	int ext_hwocv_swocv;
+	int ext_hwocv_swocv_lt;
+	int ext_hwocv_swocv_lt_temp;
 
 
 /* adb */
@@ -752,6 +778,7 @@ struct mtk_battery {
 	int algo_ocv_to_soc;
 	int algo_vtemp;
 
+	bool is_reset_aging_factor;
 	int aging_factor;
 
 	struct timespec uisoc_oldtime;
@@ -796,6 +823,8 @@ struct mtk_battery {
 	bool is_nafg_broken;
 
 	/* battery temperature table */
+	int no_bat_temp_compensate;
+	int enable_tmp_intr_suspend;
 	struct battery_temperature_table rbat;
 
 	struct fgd_cmd_param_t_custom fg_data;
@@ -865,6 +894,11 @@ extern int pmic_is_bif_exist(void);
 extern int pmic_get_vbus(void);
 extern bool pmic_is_battery_exist(void);
 
+#ifdef ODM_HQ_EDIT
+/*duanhanxing@ODM.HQ.BSP.CHG.Basic 2018.12.14 add check battery present*/
+extern bool battery_present_check(void);
+#endif/*ODM_HQ_EDIT*/
+
 /* usb*/
 extern bool mt_usb_is_device(void);
 
@@ -880,6 +914,7 @@ extern int gauge_set_coulomb_interrupt1_lt(int car);
 extern int gauge_get_ptim_current(int *ptim_current, bool *is_charging);
 extern int gauge_get_hw_version(void);
 extern int gauge_set_nag_en(int nafg_zcv_en);
+extern int gauge_set_zcv_interrupt_en(int zcv_intr_en);
 extern int gauge_get_nag_vbat(void);
 
 /* mtk_battery_recovery.c */
@@ -913,7 +948,8 @@ extern void fg_ocv_query_soc(int ocv);
 /* GM3 simulator */
 extern void gm3_log_init(void);
 extern void gm3_log_notify(unsigned int interrupt);
-extern void gm3_log_dump(void);
+extern void gm3_log_dump(bool force);
+extern void gm3_log_dump_nafg(int type);
 
 
 /* query function , review */

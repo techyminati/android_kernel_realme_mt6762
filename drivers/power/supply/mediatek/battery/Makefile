@@ -23,3 +23,10 @@ subdir-ccflags-y += -Werror -I$(srctree)/drivers/power/supply/mediatek/misc
 ifeq ($(CONFIG_MTK_GAUGE_VERSION),30)
 	obj-y += mtk_battery.o mtk_power_misc.o mtk_gauge_coulomb_service.o mtk_gauge_class.o mtk_battery_recovery.o mtk_battery_core.o
 endif
+
+#ifdef ODM_HQ_EDIT
+#Hanxing.Duan@ODM.HQ.BSP.Charger 2019.03.15 add HQ_COMPILE_FACTORY_VERSION
+ifeq (yes,$(strip $(HQ_COMPILE_FACTORY_VERSION)))
+  ccflags-y += -DHQ_COMPILE_FACTORY_VERSION
+endif
+#endif #ODM_HQ_EDIT
