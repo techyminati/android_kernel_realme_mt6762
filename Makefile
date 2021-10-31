@@ -409,6 +409,85 @@ KBUILD_CFLAGS_MODULE  := -DMODULE
 KBUILD_LDFLAGS_MODULE := -T $(srctree)/scripts/module-common.lds
 GCC_PLUGINS_CFLAGS :=
 
+
+#ifdef VENDOR_EDIT
+#Bin.Yan@PSW.AD.BuildConfig.BaseConfig.1068615, 2017/08/28,Add for disallow system remount
+ifneq ($(SPECIAL_OPPO_CONFIG),1)
+ifneq ($(SPECIAL_OPPO_PERFORMANCE),1)
+    ifneq ($(filter release,$(OPPO_BUILD_TYPE)),)
+        ifneq ($(OPPO_ALLOW_KEY_INTERFACES),true)
+            ifeq ($(filter allnetcttest allnetcmcctest allnetcmccfield allnetctfield,$(NET_BUILD_TYPE)),)
+                KBUILD_CFLAGS += -DOPPO_DISALLOW_KEY_INTERFACES
+            endif
+        endif
+    endif
+endif
+endif
+#endif /* VENDOR_EDIT */
+
+#ifdef VENDOR_EDIT
+#Haiping.Zhong@PSW.AD.BuildConfig.BaseConfig.0, 2019/01/08, Add for build root disable dm verity
+ifeq ($(OPPO_BUILD_ROOT_DISABLE_DM_VERITY),true)
+    KBUILD_CFLAGS += -DOPPO_BUILD_ROOT_DISABLE_DM_VERITY
+endif
+#endif /* VENDOR_EDIT */
+
+
+
+#ifdef  VENDOR_EDIT
+#LiPing-m@PSW.MM.Display.LCD.Machine, 2017/11/03, Add for VENDOR_EDIT macro in kernel
+KBUILD_CFLAGS +=   -DVENDOR_EDIT
+KBUILD_CPPFLAGS += -DVENDOR_EDIT
+CFLAGS_KERNEL +=   -DVENDOR_EDIT
+CFLAGS_MODULE +=   -DVENDOR_EDIT
+#endif /* VENDOR_EDIT */
+
+#ifdef ODM_HQ_EDIT
+#Qiuyu.Fan 2018/10/03,Add for ODM_HQ_EDIT maco in kernel
+KBUILD_CFLAGS   += -DODM_HQ_EDIT
+KBUILD_CPPFLAGS += -DODM_HQ_EDIT
+CFLAGS_KERNEL   += -DODM_HQ_EDIT
+CFLAGS_MODULE   += -DODM_HQ_EDIT
+export ODM_HQ_EDIT=yes
+#endif
+
+#ifdef VENDOR_EDIT
+#ye.zhang@Sensor.config,2016-09-09, add for CTSI support external storage or not
+$(info @@@@@@@@@@@ 111 OPPO_BUILD_CUSTOMIZE is $(OPPO_BUILD_CUSTOMIZE))
+ifneq ($(OPPO_BUILD_CUSTOMIZE),)
+$(info @@@@@@@@@@@ 222 OPPO_BUILD_CUSTOMIZE is $(OPPO_BUILD_CUSTOMIZE))
+KBUILD_CFLAGS += -DMOUNT_EXSTORAGE_IF
+KBUILD_CPPFLAGS += -DMOUNT_EXSTORAGE_IF
+CFLAGS_KERNEL += -DMOUNT_EXSTORAGE_IF
+CFLAGS_MODULE += -DMOUNT_EXSTORAGE_IF
+endif
+#endif
+
+#ifdef VENDOR_EDIT
+#ifdef VENDOR_EDIT
+#Qiao.Hu@BSP.CHG.Basic, 2017/12/18,add for recogonizing release build
+ifeq ($(OPPO_BUILD_TYPE),release)
+KBUILD_CFLAGS += -DCONFIG_OPPO_REALEASE_BUILD
+KBUILD_CPPFLAGS += -DCONFIG_OPPO_REALEASE_BUILD
+endif
+
+#Guohua.Zhong@BSP.Storage.Sdcard 2018/01/18 ,add for recogonizing release build
+ifneq ($(filter release cts cta,$(OPPO_BUILD_TYPE)),)
+KBUILD_CFLAGS += -DOPPO_RELEASE_FLAG
+KBUILD_CPPFLAGS += -DOPPO_RELEASE_FLAG
+endif
+ifneq ($(filter cmcctest cmccfield allnetcttest,$(NET_BUILD_TYPE)),)
+KBUILD_CFLAGS += -DOPPO_RELEASE_FLAG
+KBUILD_CPPFLAGS += -DOPPO_RELEASE_FLAG
+endif
+#endif /* VENDOR_EDIT */
+#Ling.Guo@PSW.MM.Display.LCD, 2018/01/24, Add for cmcc test.
+ifneq ($(filter allnetcmccfield allnetcmcctest allnetctfield allnetcttest allnetcutest,$(NET_BUILD_TYPE)),)
+KBUILD_CFLAGS += -DOPPO_CTTEST_FLAG
+KBUILD_CPPFLAGS += -DOPPO_CTTEST_FLAG
+endif
+#endif /* VENDOR_EDIT */
+
 # Read KERNELRELEASE from include/config/kernel.release (if it exists)
 KERNELRELEASE = $(shell cat include/config/kernel.release 2> /dev/null)
 KERNELVERSION = $(VERSION)$(if $(PATCHLEVEL),.$(PATCHLEVEL)$(if $(SUBLEVEL),.$(SUBLEVEL)))$(EXTRAVERSION)

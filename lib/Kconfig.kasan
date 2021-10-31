@@ -24,7 +24,6 @@ choice
 	prompt "Instrumentation type"
 	depends on KASAN
 	default KASAN_OUTLINE
-	default KASAN_ENHANCEMENT
 
 config KASAN_OUTLINE
 	bool "Outline instrumentation"
