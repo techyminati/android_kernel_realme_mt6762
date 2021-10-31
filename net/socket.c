@@ -399,6 +399,12 @@ struct file *sock_alloc_file(struct socket *sock, int flags, const char *dname)
 	struct qstr name = { .name = "" };
 	struct path path;
 	struct file *file;
+#ifdef VENDOR_EDIT
+//Jiemin.Zhu@PSW.Android.OppoFeature.TrafficMonitor, 2018/06/28, Add for net comsuption statistics for
+//process which use the same uid
+	struct pid *pid;
+	struct task_struct *task;
+#endif /* VENDOR_EDIT */
 
 	if (dname) {
 		name.name = dname;
@@ -426,6 +432,20 @@ struct file *sock_alloc_file(struct socket *sock, int flags, const char *dname)
 	sock->file = file;
 	file->f_flags = O_RDWR | (flags & O_NONBLOCK);
 	file->private_data = sock;
+
+#ifdef VENDOR_EDIT
+//Jiemin.Zhu@PSW.Android.OppoFeature.TrafficMonitor, 2018/06/28, Add for net comsuption statistics for
+//process which use the same uid
+	pid = find_get_pid(current->tgid);
+	if (pid) {
+		task = get_pid_task(pid, PIDTYPE_PID);
+		if (task && sock->sk) {
+			strncpy(sock->sk->sk_cmdline, task->comm, TASK_COMM_LEN);
+		}
+		put_task_struct(task);
+	}
+	put_pid(pid);
+#endif /* VENDOR_EDIT */
 	return file;
 }
 EXPORT_SYMBOL(sock_alloc_file);

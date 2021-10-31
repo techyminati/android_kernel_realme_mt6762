@@ -300,6 +300,13 @@ EXPORT_SYMBOL(sysctl_tcp_wmem);
 atomic_long_t tcp_memory_allocated;	/* Current allocated memory. */
 EXPORT_SYMBOL(tcp_memory_allocated);
 
+#ifdef VENDOR_EDIT
+//Ming.Liu@PSW.CN.WiFi.Network.quality.1065762, 2016/10/09,
+//add for: [monitor tcp info]
+int sysctl_tcp_info_print __read_mostly = -1;
+EXPORT_SYMBOL(sysctl_tcp_info_print);
+#endif /* VENDOR_EDIT */
+
 /*
  * Current number of TCP sockets.
  */
