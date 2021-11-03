@@ -3141,7 +3141,9 @@ firmware_class.path=/vendor/firmware loop.max_part=7";
 					compatible = "android,vendor";
 					dev = "/dev/block/platform/bootdevice/by-name/vendor";
 					type = "ext4";
-					mnt_flags = "ro";
+/*yh@PSW.BSP.Storage.EXT4, 2018-11-26 add for ext4 async discard suppot*/
+					mnt_flags = "ro,async_discard";
+/*#endif*/
 #ifndef CONFIG_MTK_AB_OTA_UPDATER
 #ifndef CONFIG_MTK_DM_VERITY_OFF
 #ifdef CONFIG_MTK_AVB20_SUPPORT
